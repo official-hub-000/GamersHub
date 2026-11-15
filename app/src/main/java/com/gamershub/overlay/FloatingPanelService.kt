@@ -1,0 +1,429 @@
+package com.gamershub.overlay
+
+import com.gamershub.ui.components.AIcon
+
+import android.app.ActivityManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.graphics.PixelFormat
+import android.os.BatteryManager
+import android.os.Build
+import android.os.IBinder
+import android.provider.Settings
+import android.view.Gravity
+import android.view.WindowManager
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Screenshot
+import androidx.compose.material.icons.filled.ScreenLockPortrait
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.gamershub.data.DeviceStats
+import com.gamershub.theme.GC
+import com.gamershub.theme.GameCornerTheme
+import com.gamershub.theme.LocalAccent
+import com.gamershub.ui.components.HeroMark
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Pop-up panel — the GamersHub overlay:
+ * warm-black angular panel with the icon rows, the GAMERSHUB band with
+ * real clock + battery, a live CPU chevron column on the left and a
+ * live RAM chevron column on the right, and the info stats strip.
+ * Every control writes REAL system state where the platform allows.
+ */
+class FloatingPanelService : Service(), androidx.lifecycle.LifecycleOwner,
+    androidx.savedstate.SavedStateRegistryOwner {
+
+    private val lifecycleRegistry = androidx.lifecycle.LifecycleRegistry(this)
+    private val savedStateRegistryController =
+        androidx.savedstate.SavedStateRegistryController.create(this)
+
+    override val lifecycle: androidx.lifecycle.Lifecycle
+        get() = lifecycleRegistry
+    override val savedStateRegistry: androidx.savedstate.SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+
+    private var windowManager: WindowManager? = null
+    private var bubbleView: android.view.View? = null
+    private var panelView: android.view.View? = null
+    private var bubbleParams: WindowManager.LayoutParams? = null
+    private var expanded = false
+    private var panelRecomposer: androidx.compose.runtime.Recomposer? = null
+    private var panelJob: kotlinx.coroutines.Job? = null
+    private val panelScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main
+    )
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        isRunning = true
+        savedStateRegistryController.performRestore(null)
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_CREATE)
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_START)
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val type = if (Build.VERSION.SDK_INT >= 34) {
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else 0
+        val foregrounded = runCatching {
+            androidx.core.app.ServiceCompat.startForeground(this, NOTIF_ID, buildNotification(), type)
+        }.isSuccess
+        if (!foregrounded) {
+            android.widget.Toast.makeText(
+                this,
+                "Turn on notifications for GamersHub, then try again",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            isRunning = false
+            stopSelf()
+            return
+        }
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            android.widget.Toast.makeText(
+                this,
+                "Allow display over other apps for GamersHub",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            isRunning = false
+            stopSelf()
+            return
+        }
+        addBubble()
+    }
+
+    override fun onDestroy() {
+        isRunning = false
+        runCatching { panelJob?.cancel() }
+        runCatching { panelRecomposer?.cancel() }
+        removeViews()
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_STOP)
+        lifecycleRegistry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_DESTROY)
+        super.onDestroy()
+    }
+
+    private fun removeViews() {
+        runCatching { bubbleView?.let { windowManager?.removeView(it) } }
+        runCatching { panelView?.let { windowManager?.removeView(it) } }
+        bubbleView = null
+        panelView = null
+    }
+
+    private fun overlayParams(width: Int = WindowManager.LayoutParams.WRAP_CONTENT): WindowManager.LayoutParams =
+        WindowManager.LayoutParams(
+            width,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 400
+        }
+
+    private fun addBubble() {
+        com.gamershub.GamersHubApp.step("bubble attach")
+        val params = overlayParams()
+        bubbleParams = params
+        // A plain View, on purpose: a ComposeView builds its whole composition in
+        // onAttachedToWindow, and a single bad frame there closed the app. This one
+        // only decodes one bitmap and draws two circles.
+        val view = EmblemBubbleView(this).apply {
+            onTap = { togglePanel() }
+            onLongPress = { quitFloating() }
+            onDrag = { dx, dy ->
+                params.x += dx.toInt()
+                params.y += dy.toInt()
+                runCatching { windowManager?.updateViewLayout(this, params) }
+            }
+        }
+        bubbleView = view
+        val attached = runCatching {
+            windowManager?.addView(view, params)
+            // Small pop as it lands, so the mark is clearly "on".
+            view.alpha = 0f
+            view.scaleX = 0.6f
+            view.scaleY = 0.6f
+            view.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(260L)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.6f))
+                .start()
+        }.isSuccess
+        if (!attached) {
+            android.widget.Toast.makeText(
+                this,
+                "Window could not attach — check display-over-apps",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            isRunning = false
+            stopSelf()
+        }
+    }
+
+    /** Removes the floating icon and stops the service — the "close" the icon was missing. */
+    private fun quitFloating() {
+        com.gamershub.GamersHubApp.step("bubble quit")
+        closePanel()
+        removeViews()
+        isRunning = false
+        android.widget.Toast.makeText(
+            this,
+            "Floating icon closed — switch it back on in Tools",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        stopSelf()
+    }
+
+    private fun togglePanel() {
+        com.gamershub.GamersHubApp.step(if (expanded) "panel close" else "panel open")
+        if (expanded) closePanel() else openPanel()
+    }
+
+    private fun openPanel() {
+        com.gamershub.GamersHubApp.step("panel window")
+        if (panelView != null) return
+        val params = overlayParams(WindowManager.LayoutParams.MATCH_PARENT)
+        // Taps anywhere outside the sheet come back as ACTION_OUTSIDE and close it —
+        // no need to hunt for the floating bubble again.
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        params.gravity = Gravity.BOTTOM or Gravity.START
+        params.x = 0
+        params.y = 0
+        val panelRepo = runCatching { com.gamershub.data.AppRepo(this) }.getOrNull()
+        val customArgb = runCatching { panelRepo?.customAccent() ?: 0 }.getOrDefault(0)
+        val panelTint = if (customArgb != 0) androidx.compose.ui.graphics.Color(customArgb) else null
+        val panelTheme = runCatching { panelRepo?.accentIndex() ?: 0 }.getOrDefault(0)
+        val content = ComposeView(this)
+        // The panel gets its own recomposer with an error sink, so a failure inside the
+        // panel closes the window instead of killing the process. A recomposer can only
+        // run on a context that carries a frame clock, so we ask for one first and fall
+        // back to Compose's own window recomposer when this thread does not provide it.
+        runCatching {
+            val threadContext = androidx.compose.ui.platform.AndroidUiDispatcher.CurrentThread
+            val clock = threadContext[androidx.compose.runtime.MonotonicFrameClock]
+            if (clock != null) {
+                val sink = kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+                    if (error is kotlinx.coroutines.CancellationException) return@CoroutineExceptionHandler
+                    com.gamershub.GamersHubApp.note(error, "panel compose")
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        runCatching {
+                            android.widget.Toast.makeText(
+                                this,
+                                "The pop-up hit a snag — details were saved",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        closePanel()
+                    }
+                }
+                // Frame clock + sink, and the runner launched on that exact context:
+                // Recomposer reads the clock from the caller's context, not its own.
+                val runnerContext = threadContext + clock + sink
+                val recomposer = androidx.compose.runtime.Recomposer(runnerContext)
+                panelRecomposer = recomposer
+                content.setParentCompositionContext(recomposer)
+                panelJob = panelScope.launch(runnerContext) {
+                    runCatching { recomposer.runRecomposeAndApplyChanges() }
+                        .onFailure { error ->
+                            // Closing the panel cancels this job on purpose; that is not a crash.
+                            if (error !is kotlinx.coroutines.CancellationException) {
+                                com.gamershub.GamersHubApp.note(error, "panel runner")
+                            }
+                        }
+                }
+            }
+        }
+        content.setContent {
+            GameCornerTheme(if (panelTint != null) com.gamershub.theme.GC.CUSTOM else panelTheme, panelTint) {
+                AxPanel(onClose = { closePanel() }, onQuit = { quitFloating() })
+            }
+        }
+        // ComposeView is final, so the outside-tap handler lives on a thin host.
+        val view = object : android.widget.FrameLayout(this) {
+            override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+                if (event.action == android.view.MotionEvent.ACTION_OUTSIDE) {
+                    closePanel()
+                    return true
+                }
+                return super.dispatchTouchEvent(event)
+            }
+        }
+        view.addView(content, android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        content.setViewTreeLifecycleOwner(this)
+        content.setViewTreeSavedStateRegistryOwner(this)
+        val attached = runCatching {
+            windowManager?.addView(view, params)
+            // Slide up from the edge with a fade — the panel had no motion at all.
+            view.translationY = 64f * resources.displayMetrics.density
+            view.alpha = 0f
+            view.animate().translationY(0f).alpha(1f)
+                .setDuration(230L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
+                .start()
+        }.isSuccess
+        if (!attached) {
+            android.widget.Toast.makeText(
+                this,
+                "Window could not attach — check display-over-apps",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            expanded = false
+            return
+        }
+        expanded = true
+        panelView = view
+    }
+
+    private fun closePanel() {
+        val closing = panelView
+        expanded = false
+        runCatching { panelJob?.cancel() }
+        runCatching { panelRecomposer?.cancel() }
+        panelJob = null
+        panelRecomposer = null
+        panelView = null
+        if (closing == null) return
+        // Let it drop away instead of vanishing.
+        runCatching {
+            closing.animate().translationY(72f * resources.displayMetrics.density).alpha(0f)
+                .setDuration(170L)
+                .withEndAction {
+                    runCatching { windowManager?.removeView(closing) }
+                }
+                .start()
+        }.onFailure {
+            runCatching { windowManager?.removeView(closing) }
+        }
+    }
+
+    private fun buildNotification(): android.app.Notification {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel("panel", "Pop-up Window", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, "panel")
+        } else {
+            @Suppress("DEPRECATION") android.app.Notification.Builder(this)
+        }
+        return builder
+            .setContentTitle("GamersHub panel active")
+            .setContentText("Tap the bubble for the panel")
+            .setSmallIcon(com.gamershub.R.drawable.ic_stat_gh)
+            .build()
+    }
+
+    companion object {
+        private const val NOTIF_ID = 51
+        private val runningState = androidx.compose.runtime.mutableStateOf(false)
+
+        var isRunning: Boolean
+            get() = runningState.value
+            private set(value) {
+                runningState.value = value
+            }
+
+        fun start(context: Context) {
+            if (isRunning) return
+            val intent = Intent(context, FloatingPanelService::class.java)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                else context.startService(intent)
+            }.onFailure {
+                com.gamershub.GamersHubApp.toast("Window couldn't start — check overlay/notification permission")
+            }
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, FloatingPanelService::class.java))
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
