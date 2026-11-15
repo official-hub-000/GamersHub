@@ -67,7 +67,10 @@ jobs:
           fail() { echo "::error::$1"; say "FAIL: $1"; exit 1; }
 
           # ---------- signature ----------
-          if ! apksigner verify --verbose --print-certs "$APK" > sign.txt 2>&1; then
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner 2>/dev/null | sort | tail -1)
+          say "apksigner: ${APKSIGNER:-<not found>}"
+          test -n "$APKSIGNER" || fail "apksigner not found in the Android SDK"
+          if ! "$APKSIGNER" verify --verbose --print-certs "$APK" > sign.txt 2>&1; then
             say "FAIL: apksigner verify error"
             cat sign.txt | tee -a "$REPORT"
             fail "apksigner verify failed"
