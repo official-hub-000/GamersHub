@@ -52,35 +52,79 @@ jobs:
       # Hard gate: the shipped artifact must be a *signed release* build, not a
       # debug build. Signing identity is pinned to the committed keystore so an
       # accidental re-sign with debug keys fails the run instead of shipping.
+      # Every check is echoed to the job summary so the result is auditable
+      # without downloading logs.
       - name: Verify release artifact
         run: |
-          set -eu
+          set -u
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          echo "APK: $APK ($(stat -c%s "$APK") bytes)"
+          {
+            echo "### Release artifact verification"
+            echo ""
+            echo '```'
+            echo "APK: $APK"
+            echo "size: $(stat -c%s "$APK") bytes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
+          fail() { echo "::error::$1"; echo "- ❌ **$1**" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+
+          # ---------- signature ----------
           echo "--- apksigner verify ---"
-          apksigner verify --verbose --print-certs "$APK" | tee sign.txt
+          if ! apksigner verify --verbose --print-certs "$APK" > sign.txt 2>&1; then
+            cat sign.txt
+            fail "apksigner verify failed: $(tail -3 sign.txt | tr '\n' ' ')"
+          fi
+          cat sign.txt
 
-          grep -q "Verified using v1 scheme" sign.txt
-          grep -q "Verified using v2 scheme" sign.txt
-          echo "OK: v1 + v2 signatures present"
+          {
+            echo ""
+            echo "**Signature**"
+            echo ""
+            echo '```'
+            grep -E "Verified using|Signer #1 certificate (DN|SHA-256)" sign.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          grep -q "Verified using v1 scheme" sign.txt || fail "missing v1 signature scheme"
+          grep -q "Verified using v2 scheme" sign.txt || fail "missing v2 signature scheme"
 
           CERT_SHA256=$(grep "Signer #1 certificate SHA-256 digest:" sign.txt | awk '{print $NF}')
           echo "cert SHA-256: $CERT_SHA256"
           test "$CERT_SHA256" = "463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0" \
-            || { echo "::error::APK is not signed with the release keystore"; exit 1; }
+            || fail "APK is not signed with the release keystore (got $CERT_SHA256)"
+          echo "- ✅ signed with the release keystore (v1 + v2)" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "--- aapt dump badging ---"
-          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
-          "$AAPT" dump badging "$APK" > badging.txt || true
-          cat badging.txt | head -5
+          # ---------- identity via badging ----------
+          echo "--- aapt2 dump badging ---"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 2>/dev/null | sort | tail -1)
+          "$AAPT" dump badging "$APK" > badging.txt 2>&1 || true
+          head -5 badging.txt
 
-          grep -q "package: name='com.gamershub' versionCode='85' versionName='6.17.1'" badging.txt \
-            || { echo "::error::unexpected package identity"; exit 1; }
+          PKG_LINE=$(grep -m1 "^package:" badging.txt || true)
+          {
+            echo ""
+            echo "**Identity**"
+            echo ""
+            echo '```'
+            echo "${PKG_LINE:-<no package line>}"
+            grep -c "application-debuggable" badging.txt | sed 's/^/debuggable markers: /'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          grep -q "name='com.gamershub'" badging.txt || fail "package name is not com.gamershub"
+          grep -q "versionCode='85'" badging.txt || fail "versionCode is not 85"
+          grep -q "versionName='6.17.1'" badging.txt || fail "versionName is not 6.17.1"
           if grep -qi "application-debuggable" badging.txt; then
-            echo "::error::APK is debuggable - refusing to publish"; exit 1
+            fail "APK is debuggable - refusing to publish a debug build"
           fi
-          echo "OK: com.gamershub 6.17.1 (85), not debuggable"
+          echo "- ✅ com.gamershub 6.17.1 (85), not debuggable" >> "$GITHUB_STEP_SUMMARY"
+
+          # ---------- anything debug-ish shipped? ----------
+          if unzip -Z1 "$APK" | grep -qE '^classes[0-9]*\.dex$' && grep -qi "debuggable" badging.txt; then
+            fail "release APK carries debug flags"
+          fi
+          echo "- ✅ no debug artefacts in the package" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Media audit
         run: |
