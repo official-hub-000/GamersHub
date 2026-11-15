@@ -49,6 +49,39 @@ jobs:
             -Pandroid.injected.signing.key.alias=gamershub \
             -Pandroid.injected.signing.key.password=gamershub 2>&1 | tee build.log
 
+      # Hard gate: the shipped artifact must be a *signed release* build, not a
+      # debug build. Signing identity is pinned to the committed keystore so an
+      # accidental re-sign with debug keys fails the run instead of shipping.
+      - name: Verify release artifact
+        run: |
+          set -eu
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK: $APK ($(stat -c%s "$APK") bytes)"
+
+          echo "--- apksigner verify ---"
+          apksigner verify --verbose --print-certs "$APK" | tee sign.txt
+
+          grep -q "Verified using v1 scheme" sign.txt
+          grep -q "Verified using v2 scheme" sign.txt
+          echo "OK: v1 + v2 signatures present"
+
+          CERT_SHA256=$(grep "Signer #1 certificate SHA-256 digest:" sign.txt | awk '{print $NF}')
+          echo "cert SHA-256: $CERT_SHA256"
+          test "$CERT_SHA256" = "463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0" \
+            || { echo "::error::APK is not signed with the release keystore"; exit 1; }
+
+          echo "--- aapt dump badging ---"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          "$AAPT" dump badging "$APK" > badging.txt || true
+          cat badging.txt | head -5
+
+          grep -q "package: name='com.gamershub' versionCode='85' versionName='6.17.1'" badging.txt \
+            || { echo "::error::unexpected package identity"; exit 1; }
+          if grep -qi "application-debuggable" badging.txt; then
+            echo "::error::APK is debuggable - refusing to publish"; exit 1
+          fi
+          echo "OK: com.gamershub 6.17.1 (85), not debuggable"
+
       - name: Media audit
         run: |
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
