@@ -75,17 +75,19 @@ jobs:
             cat sign.txt | tee -a "$REPORT"
             fail "apksigner verify failed"
           fi
-          say "--- apksigner ---"
-          grep -E "Verified using|Signer #1 certificate (DN|SHA-256)|WARNING" sign.txt | tee -a "$REPORT" || true
+          say "--- apksigner (full) ---"
+          cat sign.txt | tee -a "$REPORT"
 
-          grep -q "Verified using v1 scheme" sign.txt || fail "missing v1 signature scheme"
-          grep -q "Verified using v2 scheme" sign.txt || fail "missing v2 signature scheme"
+          # minSdk is 26, so a v2-only signature is correct; v1 (JAR signing) is
+          # only required for minSdk < 24 and must not be demanded here.
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" sign.txt \
+            || fail "APK signature scheme v2 did not verify"
 
-          CERT_SHA256=$(grep "Signer #1 certificate SHA-256 digest:" sign.txt | awk '{print $NF}')
-          say "cert SHA-256: $CERT_SHA256"
+          CERT_SHA256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' sign.txt | head -1)
+          say "cert SHA-256: ${CERT_SHA256:-<empty>}"
           test "$CERT_SHA256" = "463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0" \
             || fail "not signed with the release keystore"
-          say "OK: signed with release keystore (v1+v2)"
+          say "OK: signed with release keystore (v2)"
 
           # ---------- identity ----------
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 2>/dev/null | sort | tail -1)
