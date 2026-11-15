@@ -83,7 +83,8 @@ jobs:
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" sign.txt \
             || fail "APK signature scheme v2 did not verify"
 
-          CERT_SHA256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' sign.txt | head -1)
+          # the line is prefixed by the scheme, e.g. "V2 Signer: certificate SHA-256 digest: ..."
+          CERT_SHA256=$(sed -n 's/.*certificate SHA-256 digest: *//p' sign.txt | head -1)
           say "cert SHA-256: ${CERT_SHA256:-<empty>}"
           test "$CERT_SHA256" = "463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0" \
             || fail "not signed with the release keystore"
