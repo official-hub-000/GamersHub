@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -103,48 +104,203 @@ fun SheetFrame(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Uni
 }
 
 /* ------------------------------------------------------------------ */
+/* Logo -> slide to enter Game Space                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The lobby logo is the door to Game Space.
+ *
+ * Tapping the emblem opens this sheet rather than navigating immediately, and the
+ * only way through is the slider. Keeping the entry behind a deliberate gesture
+ * matters here: Game Space puts overlays on the screen and starts privileged
+ * work, and a single stray tap on the logo should not do that.
+ *
+ * It opens with the most played game already selected, so the common case is
+ * "tap logo, slide, play" with nothing else to decide.
+ */
+@Composable
+fun LogoLaunchSheet(
+    library: List<InstalledApp>,
+    playMinutes: (String) -> Long,
+    onEnter: (pkg: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accent = LocalAccent.current
+    var selected by remember(library) {
+        mutableStateOf(
+            library.maxByOrNull { playMinutes(it.pkg) }?.pkg
+                ?: library.firstOrNull()?.pkg
+                ?: ""
+        )
+    }
+    val current = library.firstOrNull { it.pkg == selected }
+
+    SheetFrame(onDismiss) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_float_emblem),
+                contentDescription = null,
+                modifier = Modifier.size(52.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Game Space", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 20.sp)
+                Text(
+                    if (library.isEmpty()) "No games added yet"
+                    else "Choose the game, then slide to enter",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GC.TextDim,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (library.isEmpty()) {
+            Text(
+                "Add a game or app from the lobby first — Game Space needs something to open.",
+                style = MaterialTheme.typography.labelMedium,
+                color = GC.TextDim,
+                fontSize = 13.sp
+            )
+            Spacer(Modifier.height(16.dp))
+            SlideToOpen(label = "Slide to enter", onOpen = { onDismiss() })
+        } else {
+            // The picker is a horizontal strip: one row, no scrolling surprises,
+            // and the selected game is always visible before the slider.
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(library.size) { i ->
+                    val app = library[i]
+                    val isSel = app.pkg == selected
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RomKit.R12)
+                            .background(if (isSel) accent.copy(alpha = 0.16f) else RomKit.Panel2)
+                            .border(
+                                1.dp,
+                                if (isSel) accent.copy(alpha = 0.7f) else RomKit.Stroke,
+                                RomKit.R12
+                            )
+                            .clickable { selected = app.pkg }
+                            .padding(8.dp)
+                            .width(64.dp)
+                    ) {
+                        Image(
+                            painter = androidx.compose.ui.graphics.painter.BitmapPainter(app.icon),
+                            contentDescription = null,
+                            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            app.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSel) GC.Text else GC.TextDim,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            if (current != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        current.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = GC.Text,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    StatusPill("◌ ${playMinutes(current.pkg)}m", orange = false)
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            SlideToOpen(label = "Slide to enter", onOpen = { onEnter(selected) })
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Launch mode + slide to open                                        */
 /* ------------------------------------------------------------------ */
+/**
+ * Opening a game.
+ *
+ * This used to ask the user to choose between "Tool Shelf" and "Straight In"
+ * every single time, which was a decision they had to re-make on every launch and
+ * a step between tapping a game and playing it. The choice is gone: everything
+ * opens through Game Space.
+ *
+ * What remains is the deliberate action — a slider you have to push. That is the
+ * right amount of friction for "start this game with the overlays armed", and it
+ * is the same gesture as the one on the lobby logo, so the app only has one way to
+ * enter Game Space.
+ */
 @Composable
 fun LaunchModeSheet(
     app: InstalledApp,
     version: String,
     playMinutes: Long,
-    onLaunch: (gameSpace: Boolean) -> Unit,
+    onLaunch: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var gameSpace by remember { mutableStateOf(true) }
     SheetFrame(onDismiss) {
-        // ---- game banner ----
+        // ---- banner ----
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(120.dp)
+                .height(112.dp)
                 .clip(RoundedCornerShape(18.dp))
-                .background(Brush.horizontalGradient(listOf(Color(0xFF132A1C), Color(0xFF0E1512))))
+                .background(Brush.horizontalGradient(listOf(Color(0xFF2A1316), Color(0xFF120E10))))
         ) {
             Image(
                 painter = androidx.compose.ui.graphics.painter.BitmapPainter(app.icon),
                 contentDescription = null,
                 alpha = 0.55f,
-                modifier = Modifier.align(Alignment.CenterEnd).size(120.dp)
+                modifier = Modifier.align(Alignment.CenterEnd).size(112.dp)
             )
         }
-        // Negative heights are not a valid measurement in Compose — lift the row
-        // with an offset instead so this sheet can never fail to lay out.
+        // Negative heights are not valid in Compose; lift with an offset instead.
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 2.dp).offset(y = (-46).dp)
+            modifier = Modifier.padding(horizontal = 2.dp).offset(y = (-44).dp)
         ) {
             Image(
-                            painter = androidx.compose.ui.graphics.painter.BitmapPainter(app.icon),
+                painter = androidx.compose.ui.graphics.painter.BitmapPainter(app.icon),
                 contentDescription = null,
                 modifier = Modifier.size(64.dp).clip(RoundedCornerShape(15.dp))
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(app.name, style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(app.pkg, style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    app.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = GC.Text,
+                    fontSize = 19.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    app.pkg,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GC.TextDim,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Spacer(Modifier.height(4.dp))
                 Row {
                     StatusPill("◌ ${playMinutes}m", orange = false)
@@ -153,82 +309,27 @@ fun LaunchModeSheet(
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    version,
-                    style = MaterialTheme.typography.labelLarge, color = accentNow(), fontSize = 13.sp
-                )
+                Text(version, style = MaterialTheme.typography.labelLarge, color = accentNow(), fontSize = 13.sp)
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Pick Start Mode", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 20.sp)
+
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            LaunchModeCard(
-                icon = GhIcons.Rocket, title = "Tool Shelf", cost = "FREE · panel and boosters",
-                selected = gameSpace, onSelect = { gameSpace = true }, modifier = Modifier.weight(1f)
-            )
-            LaunchModeCard(
-                icon = GhIcons.Android, title = "Straight In", cost = "FREE · plain start",
-                selected = !gameSpace, onSelect = { gameSpace = false }, modifier = Modifier.weight(1f)
-            )
-        }
+        Text("Slide to open in Game Space", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "The panel, boosters and recorders arm themselves once you are inside.",
+            style = MaterialTheme.typography.labelMedium,
+            color = GC.TextDim,
+            fontSize = 13.sp
+        )
         Spacer(Modifier.height(16.dp))
-        SlideToOpen { onLaunch(gameSpace) }
-    }
-}
-
-@Composable
-private fun LaunchModeCard(
-    icon: ImageVector,
-    title: String,
-    cost: String,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val accent = LocalAccent.current
-    val scale by androidx.compose.animation.core.animateFloatAsState(
-        if (selected) 1f else 0.97f,
-        androidx.compose.animation.core.spring(
-            androidx.compose.animation.core.Spring.DampingRatioNoBouncy
-        ),
-        label = "mode"
-    )
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (selected) Color(0xFF3A2214) else GC.SurfaceHi)
-            .then(
-                if (selected) Modifier.border(2.dp, accent, RoundedCornerShape(16.dp))
-                else Modifier
-            )
-            .clickable(onClick = onSelect)
-            .padding(vertical = 16.dp)
-    ) {
-        Box(Modifier.fillMaxWidth().padding(end = 8.dp), contentAlignment = Alignment.TopEnd) {
-            if (selected) {
-                AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-            }
-        }
-        AIcon(icon, contentDescription = null, tint = if (selected) accent else GC.TextSoft, modifier = Modifier.size(34.dp))
+        SlideToOpen(label = "Slide to launch") { onLaunch() }
         Spacer(Modifier.height(8.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, color = if (selected) accent else GC.Text, fontSize = 17.sp)
-        Spacer(Modifier.height(7.dp))
-        Box(
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .background(if (selected) accent.copy(alpha = 0.22f) else Color(0x14FFFFFF))
-                .padding(horizontal = 11.dp, vertical = 5.dp)
-        ) {
-            Text(cost, style = MaterialTheme.typography.labelMedium, color = if (selected) accent else GC.TextDim, fontSize = 12.sp)
-        }
     }
 }
 
 @Composable
-private fun SlideToOpen(onOpen: () -> Unit) {
+private fun SlideToOpen(label: String = "Slide to Enter", onOpen: () -> Unit) {
     val accent = LocalAccent.current
     var trackPx by remember { mutableStateOf(0f) }
     var offsetPx by remember { mutableStateOf(0f) }
@@ -242,7 +343,7 @@ private fun SlideToOpen(onOpen: () -> Unit) {
             .onSizeChanged { trackPx = it.width.toFloat() },
         contentAlignment = Alignment.Center
     ) {
-        Text("Slide to Enter", style = MaterialTheme.typography.titleMedium, color = GC.TextDim, fontSize = 19.sp)
+        Text(label, style = MaterialTheme.typography.titleMedium, color = GC.TextDim, fontSize = 19.sp)
         Box(
             Modifier
                 .align(Alignment.CenterStart)

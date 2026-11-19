@@ -53,6 +53,7 @@ fun LobbyScreen(
     onSelectApps: () -> Unit,
     onAddGames: () -> Unit,
     onGameTap: (InstalledApp) -> Unit,
+    /** Tapping the emblem (or PLAY ROOM) opens the slide-to-enter sheet. */
     onGameSpace: () -> Unit
 ) {
     val accent = LocalAccent.current
@@ -100,14 +101,17 @@ fun LobbyScreen(
                 .background(GC.HeroBrush)
                 .border(1.dp, RomKit.Stroke, RomKit.R18)
         ) {
-            Image(
-                // The floating bubble's emblem, exactly as the launcher and overlay draw it.
+            // The emblem is the door. Tapping it opens the slide-to-enter sheet,
+            // so there is exactly one way into Game Space and it is deliberate.
+            androidx.compose.foundation.Image(
                 painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_float_emblem),
-                contentDescription = null,
+                contentDescription = "Enter Game Space",
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 14.dp, end = 14.dp)
                     .size(112.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onGameSpace)
             )
             Column {
                 Column(Modifier.padding(start = 18.dp, top = 16.dp, bottom = 12.dp)) {
@@ -235,6 +239,10 @@ fun LobbyScreen(
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // An explicit "add" tile sits at the end of the shelf, so adding an
+                // app is possible without finding the header pill or scrolling back
+                // up. Apps and games are the same list: the picker shows everything
+                // installed, filtered to nothing.
                 library.forEach { app ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -262,6 +270,39 @@ fun LobbyScreen(
                             }
                         }
                         CircleIconButton(GhIcons.ChevronRight, onClick = { onGameTap(app) })
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RomKit.R18)
+                        .background(RomKit.Panel)
+                        .border(1.dp, RomKit.Stroke, RomKit.R18)
+                        .clickable(onClick = onAddGames)
+                        .padding(horizontal = 14.dp, vertical = 16.dp)
+                ) {
+                    Box(
+                        Modifier.size(44.dp).clip(RomKit.R12).background(RomKit.Panel2),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AIcon(GhIcons.Add, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.width(13.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Add app or game",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = GC.Text,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            "Anything installed on this phone",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = GC.TextDim,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }

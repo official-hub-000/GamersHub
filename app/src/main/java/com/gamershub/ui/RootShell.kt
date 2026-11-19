@@ -138,6 +138,7 @@ sealed interface SheetState {
     data object Spoof : SheetState
     data object PanelHub : SheetState
     data object EngineOff : SheetState
+    data object LogoLaunch : SheetState
 }
 
 /** Root shell: tabs, octagon nav, sheets, live state. */
@@ -331,6 +332,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             "panel" -> SheetState.PanelHub
             "apps" -> SheetState.AppSelector
             "engineoff" -> SheetState.EngineOff
+            "logolaunch" -> SheetState.LogoLaunch
             else -> SheetState.None
         }
 
@@ -440,9 +442,11 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     onSelectApps = { sheet = SheetState.AppSelector },
                     onAddGames = { sheet = SheetState.AppSelector },
                     onGameTap = { app -> sheet = SheetState.Launch(app) },
+                    // Both the emblem and PLAY ROOM open the slide-to-enter sheet.
+                    // With nothing added, the only sensible next step is the picker.
                     onGameSpace = {
                         if (library.isEmpty()) sheet = SheetState.AppSelector
-                        else sheet = SheetState.Launch(library.first())
+                        else sheet = SheetState.LogoLaunch
                     }
                 )
                 Tab.TOOLS -> ToolsScreen(
@@ -594,14 +598,15 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                         app = current.app,
                         version = "App",
                         playMinutes = repo.playMinutes(current.app.pkg),
-                        onLaunch = { gameSpace ->
-                            // Launches are free — no energy gate, no ads, no waiting.
+                        // Every launch goes through Game Space. The old mode
+                        // choice sent some launches "straight in", which meant the
+                        // panel and boosters silently were not there.
+                        onLaunch = {
                             pendingLaunch = current.app
                             sheet = SheetState.None
                             context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
                                 .edit().putString("last_game_pkg", current.app.pkg).apply()
-                            if (gameSpace) openGameSpace(context, current.app.pkg)
-                            else repo.launch(current.app.pkg)
+                            openGameSpace(context, current.app.pkg)
                         },
                         onDismiss = { sheet = SheetState.None }
                     )
@@ -691,6 +696,15 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                         onDismiss = { sheet = SheetState.None }
                     )
                     SheetState.Spoof -> com.gamershub.ui.sheets.SpoofSheet(
+                        onDismiss = { sheet = SheetState.None }
+                    )
+                    SheetState.LogoLaunch -> com.gamershub.ui.sheets.LogoLaunchSheet(
+                        library = library,
+                        playMinutes = { repo.playMinutes(it) },
+                        onEnter = { pkg ->
+                            sheet = SheetState.None
+                            openGameSpace(context, pkg)
+                        },
                         onDismiss = { sheet = SheetState.None }
                     )
                     SheetState.EngineOff -> com.gamershub.ui.sheets.EngineOffSheet(
