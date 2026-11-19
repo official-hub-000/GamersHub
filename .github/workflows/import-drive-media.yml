@@ -1,0 +1,97 @@
+# Imports a media file from Google Drive into the repo by id.
+#
+# The Drive file stays the source of truth; this just moves the bytes onto an
+# `media-import` branch so they can be pulled into `app/src/main/res/raw/`.
+# It asserts the file really is a video and reports every stream, so a clip
+# that lost its audio track fails loudly instead of being committed silently.
+name: Import Drive media
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_id:
+        description: 'Google Drive file id'
+        required: true
+      out_path:
+        description: 'Destination path, e.g. app/src/main/res/raw/intro_portrait.mp4'
+        required: true
+      require_audio:
+        description: 'Fail if the clip has no audio stream'
+        required: true
+        default: 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download from Google Drive
+        env:
+          FILE_ID: ${{ inputs.file_id }}
+          OUT_PATH: ${{ inputs.out_path }}
+        run: |
+          set -eu
+          mkdir -p "$(dirname "$OUT_PATH")"
+          pip install -q gdown 2>&1 | tail -1
+          report=/tmp/import-report.txt
+          echo "file_id=$FILE_ID" > "$report"
+          echo "out_path=$OUT_PATH" >> "$report"
+
+          gdown "$FILE_ID" -O /tmp/media.bin 2>&1 | tail -5 || true
+          if [ ! -s /tmp/media.bin ]; then
+            echo "--- gdown produced nothing, trying drive.usercontent" | tee -a "$report"
+            curl -sL "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" -o /tmp/media.bin
+          fi
+          echo "downloaded=$(stat -c%s /tmp/media.bin 2>/dev/null || echo 0) bytes" | tee -a "$report"
+
+          # must be a real MP4 (ftyp box near the start)
+          head -c 64 /tmp/media.bin | grep -qa "ftyp" || { echo "NOT AN MP4" | tee -a "$report"; exit 1; }
+          cp /tmp/media.bin "$OUT_PATH"
+
+      - name: Inspect streams
+        env:
+          OUT_PATH: ${{ inputs.out_path }}
+          REQUIRE_AUDIO: ${{ inputs.require_audio }}
+        run: |
+          set -eu
+          report=/tmp/import-report.txt
+          which ffprobe >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
+
+          echo "--- ffprobe ---" >> "$report"
+          ffprobe -v error -show_entries stream=index,codec_type,codec_name,width,height,channels,sample_rate \
+                  -show_entries format=duration,size,bit_rate -of default=nw=1 "$OUT_PATH" >> "$report" 2>&1 || true
+          cat "$report" | sed -n '/--- ffprobe ---/,$p'
+
+          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_PATH")
+          W=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$OUT_PATH")
+          H=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$OUT_PATH")
+          A=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$OUT_PATH")
+          echo "duration=${DUR}s video=${W}x${H} audio=${A:-none}" | tee -a "$report"
+
+          if [ "$REQUIRE_AUDIO" = "true" ] && [ -z "$A" ]; then
+            echo "::error::clip has NO audio stream"; echo "RESULT: FAIL - no audio" >> "$report"; exit 1
+          fi
+          echo "RESULT: OK" >> "$report"
+
+      - name: Publish to media-import branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUT_PATH: ${{ inputs.out_path }}
+        run: |
+          WORK=$(mktemp -d)
+          git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORK/repo"
+          cd "$WORK/repo"
+          git checkout --orphan media-import-tmp 2>/dev/null || git checkout -B media-import-tmp
+          git rm -rq --cached . >/dev/null 2>&1 || true
+          mkdir -p "$(dirname "$OUT_PATH")"
+          cp "$GITHUB_WORKSPACE/$OUT_PATH" "$OUT_PATH"
+          cp /tmp/import-report.txt import-report.txt
+          git add -f "$OUT_PATH" import-report.txt
+          git -c user.name="media-relay" -c user.email="relay@users.noreply.github.com" \
+              commit -m "import $(basename "$OUT_PATH") [skip ci]" || true
+          git push -f origin HEAD:media-import
