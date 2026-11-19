@@ -71,10 +71,13 @@ object Shell {
     }
 
     fun granted(): Boolean = try {
-        Shizuku.pingBinder() &&
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        // A granted root shell means privileged work is possible whether or not
+        // Shizuku is installed, running, or authorised.
+        com.gamershub.core.root.RootShell.ready() ||
+            (Shizuku.pingBinder() &&
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     } catch (_: Throwable) {
-        false
+        com.gamershub.core.root.RootShell.ready()
     }
 
     fun connected(): Boolean = binder != null
@@ -155,6 +158,15 @@ object Shell {
      * The bound user service remains as a fallback for older Shizuku builds.
      */
     fun exec(command: String): String? {
+        // Root first: when the engine is on and root was granted, every existing
+        // Shizuku call site transparently gets the deeper tree (system-only paths,
+        // property writes, pkgs that shell cannot touch).
+        if (com.gamershub.core.root.RootShell.ready()) {
+            com.gamershub.core.root.RootShell.run(command)?.let { out ->
+                record("$ " + command.take(70) + "  →  root")
+                return out
+            }
+        }
         directExec(command)?.let { out ->
             record("$ " + command.take(70) + "  →  ok")
             return out
@@ -257,11 +269,13 @@ object Shell {
     }
 
     /** True when privileged commands can actually run right now. */
-    fun available(): Boolean = granted() || binder != null
+    fun available(): Boolean = granted() || binder != null ||
+        com.gamershub.core.root.RootShell.ready()
 
     /** Human-readable reason for the last failure (drives the UI messages). */
     fun reason(): String = when {
-        !running() -> "Shizuku service is not running"
+        com.gamershub.core.root.RootShell.ready() -> lastError.ifBlank { "root rejected the command" }
+        !running() -> "Shizuku service is not running (and no root)"
         !granted() -> "GamersHub is not authorised in Shizuku"
         else -> lastError.ifBlank { "shell rejected the command" }
     }

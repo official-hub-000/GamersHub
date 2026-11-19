@@ -69,6 +69,9 @@ class GamersHubApp : Application() {
         super.onCreate()
         instance = this
         installCrashGuard()
+        // Restore the persisted master-engine state so a restart cannot silently
+        // leave privileged surfaces armed, or lose a switch the user turned on.
+        runCatching { com.gamershub.core.Engine.restore(this) }
     }
 
     private fun installCrashGuard() {

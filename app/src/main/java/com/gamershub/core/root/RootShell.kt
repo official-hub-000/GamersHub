@@ -1,0 +1,318 @@
+package com.gamershub.core.root
+
+import android.content.Context
+import java.io.BufferedReader
+import java.io.OutputStreamWriter
+import java.util.ArrayDeque
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Root backend.
+ *
+ * Two things live here:
+ *
+ *  1. [acquire] — gets a real root shell. `su` is tried directly, then through the
+ *     Shizuku shell (some setups only grant su to the shell uid), then through a
+ *     bundled `libsu`-style helper binary installed into the app's private dir as a
+ *     temporary root provider ("temp root", in the spirit of DF root). The provider
+ *     is a thin trampoline that re-execs `su -c`, so it never fakes privilege: if
+ *     the device is not rooted it reports NOT_ROOT instead of pretending.
+ *
+ *  2. [run] — executes a command in a *persistent* root shell (one process, many
+ *     commands) so per-frame operations do not pay `su` startup cost. Falls back to
+ *     a one-shot `su -c` when the persistent shell cannot be kept alive.
+ *
+ * Everything is tracked so [releaseAll] can guarantee that turning the master engine
+ * off really leaves nothing running.
+ */
+object RootShell {
+
+    enum class State { UNKNOWN, NOT_ROOT, SHELL_ONLY, READY, DENIED }
+
+    private const val PROVIDER = "ghsu"
+
+    @Volatile
+    var state: State = State.UNKNOWN
+        private set
+
+    @Volatile
+    var lastError: String = ""
+        private set
+
+    /** How root was obtained, for the UI. */
+    @Volatile
+    var method: String = ""
+        private set
+
+    @Volatile
+    private var session: Session? = null
+
+    /** Commands we ran, newest last — drives the Root screen's log. */
+    private val history = ArrayDeque<String>()
+
+    fun recent(limit: Int = 10): List<String> = synchronized(history) {
+        history.toList().takeLast(limit)
+    }
+
+    private fun record(line: String) {
+        synchronized(history) {
+            history.addLast(line)
+            while (history.size > 60) history.removeFirst()
+        }
+    }
+
+    fun ready(): Boolean = state == State.READY && session?.alive == true
+
+    fun statusLabel(): String = when (state) {
+        State.READY -> "Root ready · $method"
+        State.SHELL_ONLY -> "Shell only (no root)"
+        State.NOT_ROOT -> "No root / Magisk su missing"
+        State.DENIED -> "Root denied"
+        State.UNKNOWN -> "Not checked"
+    }
+
+    // ------------------------------------------------------------------ discovery
+
+    /**
+     * Cheap check that does not prompt: is there a usable `su` on the path?
+     * Used to decide whether the Root card is worth showing at all.
+     */
+    fun suExists(): Boolean = runCatching {
+        ProcessBuilder("sh", "-c", "command -v su >/dev/null 2>&1").start().waitFor() == 0
+    }.getOrDefault(false)
+
+    /**
+     * Obtains root. This may show the Magisk/SuperSU prompt, so call it from a
+     * background thread and only when the user asks for it.
+     */
+    fun acquire(context: Context): Boolean {
+        if (ready()) return true
+
+        // 1. plain su (Magisk, KernelSU, APatch, SuperSU)
+        quick("su -c id", timeoutMs = 20_000)?.let { out ->
+            if (out.contains("uid=0")) {
+                state = State.READY
+                method = "su"
+                lastError = ""
+                startSession(context)
+                record("su -c id → uid=0")
+                return true
+            }
+        }
+
+        // 2. su through the Shizuku shell — some setups only grant root to shell
+        if (state != State.READY) {
+            com.gamershub.core.shizuku.Shell.exec("su -c id")?.let { out ->
+                if (out.contains("uid=0")) {
+                    state = State.READY
+                    method = "su via Shizuku"
+                    lastError = ""
+                    startSession(context)
+                    record("su via shizuku → uid=0")
+                    return true
+                }
+            }
+        }
+
+        // 3. bundled temporary provider
+        if (state != State.READY && installProvider(context)) {
+            quick("${providerPath(context)} id", timeoutMs = 20_000)?.let { out ->
+                if (out.contains("uid=0")) {
+                    state = State.READY
+                    method = "bundled provider"
+                    lastError = ""
+                    startSession(context)
+                    record("$PROVIDER id → uid=0")
+                    return true
+                }
+            }
+        }
+
+        state = if (com.gamershub.core.shizuku.Shell.available()) State.SHELL_ONLY else State.NOT_ROOT
+        lastError = "No root. Install Magisk (or KernelSU/APatch) and grant GamersHub superuser access."
+        record("acquire failed → $lastError")
+        return false
+    }
+
+    /** Drops the persistent shell and marks root unusable; call on engine stop. */
+    fun releaseAll() {
+        runCatching { session?.close() }
+        session = null
+        state = State.SHELL_ONLY
+        method = ""
+        record("root session released")
+    }
+
+    // ------------------------------------------------------------------ execution
+
+    /**
+     * Runs [command] as root. Returns combined stdout/stderr, or null when root is
+     * unavailable. Never throws and never blocks longer than [timeoutMs].
+     */
+    fun run(command: String, timeoutMs: Long = 8_000): String? {
+        if (state != State.READY) return null
+        val s = session
+        if (s != null && s.alive) {
+            val out = s.exec(command, timeoutMs)
+            if (out != null) {
+                record("$ " + command.take(70) + " → root")
+                return out
+            }
+        }
+        // Session died (device revoked root, process recycled): retry once one-shot.
+        val out = quick("su -c \"${command.replace("\"", "\\\"")}\"", timeoutMs)
+        if (out != null) {
+            record("$ " + command.take(70) + " → root (oneshot)")
+            startSession(com.gamershub.GamersHubApp.instance ?: return out)
+        } else {
+            session = null
+            record("$ " + command.take(70) + " → failed")
+        }
+        return out
+    }
+
+    fun ok(command: String): Boolean {
+        val out = run("$command; echo __GH_EXIT__=$?") ?: return false
+        val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return true
+        return m.groupValues[1] == "0"
+    }
+
+    /** One-shot exec with no session reuse; used for probing. */
+    private fun quick(cmdline: String, timeoutMs: Long): String? = runCatching {
+        val p = ProcessBuilder("sh", "-c", cmdline).redirectErrorStream(true).start()
+        val sb = StringBuilder()
+        val t = Thread { runCatching { p.inputStream.bufferedReader().forEachLine { sb.appendLine(it) } } }
+        t.start()
+        if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+            runCatching { p.destroyForcibly() }
+        }
+        t.join(800)
+        sb.toString()
+    }.getOrNull()
+
+    // ------------------------------------------------------------------ temp provider
+
+    private fun providerPath(context: Context): String =
+        java.io.File(context.filesDir, PROVIDER).absolutePath
+
+    /**
+     * Installs a tiny trampoline script that re-execs su. This is the "temporary root
+     * system": it lives inside the app's private storage, is created only when root is
+     * requested, and is deleted by [removeProvider] when the engine is switched off.
+     *
+     * It deliberately does NOT bundle a su binary — shipping one would be both a
+     * security hole and licence-problematic, and it could not work without the kernel
+     * already trusting it. It is a convenience shim over the device's real su.
+     */
+    private fun installProvider(context: Context): Boolean = runCatching {
+        val file = java.io.File(context.filesDir, PROVIDER)
+        if (!file.exists()) {
+            file.writeText(
+                """
+                #!/system/bin/sh
+                # GamersHub temporary root provider.
+                # Exists only while the master engine is on; re-execs the device's su.
+                exec su -c "$*"
+                """.trimIndent() + "\n"
+            )
+        }
+        file.setExecutable(true, false)
+        file.exists() && file.canExecute()
+    }.getOrDefault(false)
+
+    fun removeProvider(context: Context) {
+        runCatching { java.io.File(context.filesDir, PROVIDER).delete() }
+        record("temp provider removed")
+    }
+
+    // ------------------------------------------------------------------ session
+
+    private fun startSession(context: Context) {
+        if (session?.alive == true) return
+        session = runCatching { Session.start() }.getOrNull()
+        record(if (session?.alive == true) "root shell session started" else "root session unavailable")
+    }
+
+    /**
+     * A single long-lived `su` process multiplexed by a marker line.
+     *
+     * Commands are written to sh's stdin and each one is followed by an exit marker;
+     * the reader thread hands complete blocks back to the waiting caller. This keeps
+     * privileged work cheap (no fork per command) which is what makes per-frame and
+     * per-touch operations viable.
+     */
+    private class Session private constructor(
+        private val process: Process,
+        private val writer: OutputStreamWriter,
+        private val reader: BufferedReader,
+    ) : AutoCloseable {
+
+        @Volatile
+        var alive: Boolean = true
+            private set
+
+        private val pending = ArrayDeque<String>()
+        private val lock = Object()
+        private var markerSeq = AtomicInteger(0)
+        private var waiting: CountDownLatch? = null
+
+        fun exec(command: String, timeoutMs: Long): String? {
+            if (!alive) return null
+            return try {
+                val id = markerSeq.incrementAndGet()
+                val latch = CountDownLatch(1)
+                synchronized(lock) {
+                    pending.clear()
+                    waiting = latch
+                }
+                writer.write("$command\n")
+                writer.write("echo __GH_DONE_${id}__\n")
+                writer.flush()
+                val finished = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+                if (!finished) return null
+                synchronized(lock) { pending.joinToString("\n") }
+            } catch (t: Throwable) {
+                alive = false
+                null
+            }
+        }
+
+        private fun pump() {
+            try {
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    if (line.startsWith("__GH_DONE_")) {
+                        waiting?.countDown()
+                    } else {
+                        synchronized(lock) { pending.addLast(line!!) }
+                    }
+                    line = reader.readLine()
+                }
+            } catch (_: Throwable) {
+            } finally {
+                alive = false
+                waiting?.countDown()
+            }
+        }
+
+        override fun close() {
+            alive = false
+            runCatching { writer.close() }
+            runCatching { reader.close() }
+            runCatching { process.destroy() }
+        }
+
+        companion object {
+            fun start(): Session {
+                val p = ProcessBuilder("su").redirectErrorStream(true).start()
+                val w = OutputStreamWriter(p.outputStream)
+                val r = p.inputStream.bufferedReader()
+                val s = Session(p, w, r)
+                Thread(s::pump, "gh-root-shell").apply { isDaemon = true }.start()
+                return s
+            }
+        }
+    }
+}

@@ -891,9 +891,65 @@ private fun GfxPage(api: AxApi) {
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
         ReadRow("TARGET APP", pkgLabel)
-        ReadRow("ENGINE", RenderEngine.statusLine())
         ReadRow("DEVICE NOW", deviceNow)
         Spacer(Modifier.height(6.dp))
+
+        // ---- MASTER ENGINE -------------------------------------------------
+        // One switch owns every privilege path. OFF tears down root *and*
+        // Shizuku work, all overlays, capture, upscale, and restores the
+        // display/props that were changed. Nothing survives it.
+        SectionLabel("MASTER ENGINE")
+        val engineOn = com.gamershub.core.Engine.isOn
+        val rootReady = com.gamershub.core.root.RootShell.ready()
+        SwitchRow(
+            title = "ENGINE",
+            subtitle = when {
+                !engineOn -> "off — root, Shizuku, overlays and capture are all stopped"
+                rootReady -> "on · root (${com.gamershub.core.root.RootShell.method}) · everything below is live"
+                com.gamershub.core.shizuku.Shell.available() -> "on · Shizuku · root not granted"
+                else -> "on · no privilege — overlays only"
+            },
+            checked = engineOn,
+            onClick = {
+                api.work {
+                    if (engineOn) {
+                        val report = com.gamershub.core.Engine.stopEverything(context)
+                        api.say(report)
+                    } else {
+                        com.gamershub.core.Engine.start(context, wantRoot = true)
+                        api.say(com.gamershub.core.Engine.statusLine(context))
+                    }
+                }
+            }
+        )
+        ReadRow("ROOT", com.gamershub.core.root.RootShell.statusLabel())
+        ActionRow(
+            title = "ROOT ACCESS",
+            subtitle = if (rootReady) "deeper tree: system paths, props, module flash"
+                       else "grant su to unlock system-depth control",
+            button = if (rootReady) "READY" else "GRANT"
+        ) {
+            api.work {
+                val okLocal = withContext(Dispatchers.IO) {
+                    com.gamershub.core.root.RootShell.acquire(context)
+                }
+                api.say(
+                    if (okLocal) "Root ready (${com.gamershub.core.root.RootShell.method})"
+                    else com.gamershub.core.root.RootShell.lastError
+                )
+            }
+        }
+        ActionRow(
+            title = "STOP EVERYTHING",
+            subtitle = "kills root shell, Shizuku service, overlays, capture · restores device",
+            button = "ALL OFF"
+        ) {
+            api.work {
+                api.say(com.gamershub.core.Engine.stopEverything(context))
+            }
+        }
+        SectionLabel("RENDERING")
+        ReadRow("ENGINE STATUS", RenderEngine.statusLine())
 
         StepRow(
             label = "NO-LOSS SCALE",
