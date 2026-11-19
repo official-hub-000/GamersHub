@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlin.math.min
@@ -57,44 +56,92 @@ object GsEmblem {
     val Trace = Color(0xFFE8663C)
 }
 
-/** Downward chevron with an optional notch, in normalised 0..1 space. */
-private fun chevron(w: Float, h: Float, topY: Float, botY: Float, inset: Float, notch: Float): Path =
+/**
+ * Geometry of the emblem, in normalised 0..1 space.
+ *
+ * These are the actual points from the intro render: a deep open V, a thin violet
+ * silhouette, a gunmetal band, and two armour wedges that meet at a fold in the
+ * apex. Getting these ratios right is most of looking like the film — an earlier
+ * version used a shallow rounded chevron and read as a different logo.
+ */
+object Geo {
+    /** Silhouette: left tip, apex, right tip. */
+    val L = 0.065f to 0.145f
+    val A = 0.500f to 0.905f
+    val R = 0.935f to 0.145f
+
+    /** Inner edge of the violet/gunmetal band. */
+    val Li = 0.215f to 0.225f
+    val Ai = 0.500f to 0.700f
+    val Ri = 0.785f to 0.225f
+
+    /** Armour wings sit on that band, pulled in slightly. */
+    val Lw = 0.085f to 0.185f
+    val Aw = 0.500f to 0.840f
+    val Rw = 0.915f to 0.185f
+    val Liw = 0.205f to 0.255f
+    val Aiw = 0.500f to 0.665f
+    val Riw = 0.795f to 0.255f
+
+    /** Nested inner chevron. */
+    val IL = 0.255f to 0.560f
+    val IA = 0.500f to 0.790f
+    val IR = 0.745f to 0.560f
+
+    /** Gunmetal core notch at the apex. */
+    val core = listOf(
+        0.395f to 0.700f, 0.500f to 0.820f, 0.605f to 0.700f,
+        0.560f to 0.690f, 0.500f to 0.760f, 0.440f to 0.690f,
+    )
+
+    /** Circuit runs: polyline, then the node it terminates in. */
+    val traces = listOf(
+        listOf(0.250f to 0.430f, 0.310f to 0.430f, 0.360f to 0.520f) to (0.360f to 0.520f),
+        listOf(0.750f to 0.430f, 0.690f to 0.430f, 0.640f to 0.520f) to (0.640f to 0.520f),
+        listOf(0.180f to 0.330f, 0.180f to 0.395f) to (0.180f to 0.395f),
+        listOf(0.820f to 0.330f, 0.820f to 0.395f) to (0.820f to 0.395f),
+    )
+
+    val studs = listOf(
+        0.170f to 0.325f, 0.240f to 0.470f, 0.760f to 0.470f, 0.830f to 0.325f,
+    )
+}
+
+/** Build a closed path from normalised points. */
+private fun pathOf(w: Float, h: Float, points: List<Pair<Float, Float>>): Path =
     Path().apply {
-        moveTo(w * inset, h * topY)
-        lineTo(w * 0.5f, h * (topY + 0.5f * (botY - topY) - notch))
-        lineTo(w * (1f - inset), h * topY)
-        lineTo(w * (1f - inset), h * (topY + (botY - topY) * 0.28f))
-        lineTo(w * 0.5f, h * (botY - notch))
-        lineTo(w * inset, h * (topY + (botY - topY) * 0.28f))
+        points.forEachIndexed { i, (x, y) ->
+            if (i == 0) moveTo(w * x, h * y) else lineTo(w * x, h * y)
+        }
         close()
     }
 
-/** The armour wing: a thick chevron band, filled with the brand gradient. */
-private fun wing(w: Float, h: Float, topY: Float, thickness: Float, inset: Float): Path =
+/** Build an open polyline. */
+private fun lineOf(w: Float, h: Float, points: List<Pair<Float, Float>>): Path =
     Path().apply {
-        val left = w * inset
-        val right = w * (1f - inset)
-        val apexY = h * (topY + thickness * 0.5f)
-        moveTo(left, h * topY)
-        lineTo(w * 0.5f, apexY)
-        lineTo(right, h * topY)
-        lineTo(right, h * (topY + thickness))
-        lineTo(w * 0.5f, h * (topY + thickness * 1.5f))
-        lineTo(left, h * (topY + thickness))
-        close()
+        points.forEachIndexed { i, (x, y) ->
+            if (i == 0) moveTo(w * x, h * y) else lineTo(w * x, h * y)
+        }
     }
 
 /**
- * The full emblem from the intro. Static, so it is cheap enough for a backdrop:
- * it is drawn once per size change, not per frame.
+ * The full emblem, drawn from the same geometry as the intro render.
+ *
+ * Painted back-to-front the way the film builds it: violet skeleton, gunmetal
+ * band, armour wedges that fold at the apex, inner chevron, core notch, then the
+ * circuit traces. [progress] animates the build, so the mark can assemble itself
+ * on screen exactly as it does in the opening shot.
+ *
+ * Static in steady state — it is drawn once per size change, not per frame, so it
+ * is cheap enough to sit in a backdrop.
  */
 @Composable
 fun GhostMark(
     modifier: Modifier = Modifier,
     accent: Color = GsEmblem.Red,
-    /** 0 = only the violet skeleton, 1 = complete emblem. */
+    accentPair: Color = GsEmblem.Orange,
+    /** 0 = violet skeleton only, 1 = complete emblem. */
     progress: Float = 1f,
-    /** Draws the diamond studs along the wings. */
     studs: Boolean = true,
 ) {
     Canvas(modifier) {
@@ -102,146 +149,123 @@ fun GhostMark(
         val h = size.height
         val p = progress.coerceIn(0f, 1f)
 
-        // 1. violet outer skeleton — the thing you see first in the film
-        val skeleton = chevron(w, h, 0.20f, 0.94f, 0.06f, 0.10f)
-        drawPath(skeleton, GsEmblem.Violet.copy(alpha = 0.20f * p))
-        drawPath(
-            skeleton,
-            GsEmblem.Violet.copy(alpha = 0.80f * p),
-            style = Stroke(width = h * 0.010f, join = StrokeJoin.Round)
-        )
-
-        // 2. gunmetal backing plate revealed behind the wings
-        val back = chevron(w, h, 0.26f, 0.86f, 0.12f, 0.08f)
-        drawPath(
-            back,
-            Brush.verticalGradient(
-                listOf(GsEmblem.GunHi.copy(alpha = 0.55f), GsEmblem.GunLo.copy(alpha = 0.85f)),
-                0.26f * h,
-                0.86f * h
-            )
-        )
-
-        if (p > 0.35f) {
-            val wingP = ((p - 0.35f) / 0.65f).coerceIn(0f, 1f)
-
-            // 3. the red→orange armour wings, drawn left and right separately so the
-            //    gradient runs along each wing like the render does
-            val grad = Brush.linearGradient(
-                colors = listOf(GsEmblem.Red, GsEmblem.Orange, GsEmblem.Amber),
-                start = Offset(0f, h * 0.20f),
-                end = Offset(w, h * 0.62f)
-            )
-
-            val leftWing = wing(w, h, 0.22f, 0.16f, 0.06f)
-            val rightWing = wing(w, h, 0.22f, 0.16f, 0.06f)
-
-            // clip each wing to its own half so the apex seam reads as a fold
-            clipRect(0f, 0f, w * 0.5f, h) {
-                drawPath(leftWing, grad, alpha = wingP)
-            }
-            clipRect(w * 0.5f, 0f, w, h) {
-                drawPath(rightWing, grad, alpha = wingP)
-            }
-
-            // the bright leading edge, the line that catches light in the render
+        with(Geo) {
+            // 1. violet silhouette
             drawPath(
-                wing(w, h, 0.22f, 0.012f, 0.06f),
-                color = Color.White.copy(alpha = 0.35f * wingP)
+                lineOf(w, h, listOf(L, A, R)),
+                GsEmblem.Violet.copy(alpha = 0.90f * p),
+                style = Stroke(width = h * 0.011f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
-            // 4. inner violet chevron behind the core
-            if (p > 0.6f) {
-                val inner = chevron(w, h, 0.50f, 0.92f, 0.20f, 0.05f)
-                drawPath(inner, GsEmblem.Violet.copy(alpha = 0.28f))
+            if (p > 0.25f) {
+                // 2. gunmetal band between silhouette and wings
+                val band = pathOf(w, h, listOf(L, A, R, Ri, Ai, Li))
+                drawPath(band, GsEmblem.Gun)
                 drawPath(
-                    inner,
-                    GsEmblem.VioletSoft.copy(alpha = 0.85f),
-                    style = Stroke(width = h * 0.008f, join = StrokeJoin.Round)
-                )
-            }
-
-            // 5. gunmetal core plates at the base
-            if (p > 0.75f) {
-                val core = Path().apply {
-                    moveTo(w * 0.34f, h * 0.62f)
-                    lineTo(w * 0.5f, h * 0.80f)
-                    lineTo(w * 0.66f, h * 0.62f)
-                    lineTo(w * 0.60f, h * 0.60f)
-                    lineTo(w * 0.5f, h * 0.72f)
-                    lineTo(w * 0.40f, h * 0.60f)
-                    close()
-                }
-                drawPath(core, Color(0xFF2B3038))
-                drawPath(
-                    core,
-                    GsEmblem.GunHi.copy(alpha = 0.7f),
+                    lineOf(w, h, listOf(Li, Ai, Ri)),
+                    GsEmblem.GunHi.copy(alpha = 0.85f),
                     style = Stroke(width = h * 0.006f, join = StrokeJoin.Round)
                 )
             }
 
-            // 6. circuit traces with terminal nodes
-            if (p > 0.85f) {
-                trace(w, h, 0.17f, 0.44f, 0.30f, 0.60f, studs)
-                trace(w, h, 0.83f, 0.44f, 0.70f, 0.60f, studs, flip = true)
-            }
-        }
+            if (p > 0.5f) {
+                val wp = ((p - 0.5f) / 0.5f).coerceIn(0f, 1f)
 
-        // 7. studs along the wings
-        if (studs && p > 0.5f) {
-            val studAlpha = ((p - 0.5f) / 0.5f).coerceIn(0f, 1f)
-            listOf(0.20f to 0.30f, 0.28f to 0.38f, 0.72f to 0.38f, 0.80f to 0.30f).forEach { (x, y) ->
-                drawCircle(
-                    GsEmblem.Amber.copy(alpha = 0.85f * studAlpha),
-                    radius = h * 0.008f,
-                    center = Offset(w * x, h * y)
+                // 3. armour wedges. Each half gets its own gradient, so the apex
+                //    reads as a fold rather than one flat sweep.
+                val leftWing = pathOf(w, h, listOf(Lw, Aw, Ai, Liw))
+                val rightWing = pathOf(w, h, listOf(Aw, Rw, Riw, Ai))
+
+                drawPath(
+                    leftWing,
+                    Brush.linearGradient(
+                        listOf(GsEmblem.RedDeep, GsEmblem.Red, accent),
+                        start = Offset(w * 0.10f, h * 0.19f),
+                        end = Offset(w * 0.50f, h * 0.84f)
+                    ),
+                    alpha = wp
+                )
+                drawPath(
+                    rightWing,
+                    Brush.linearGradient(
+                        listOf(accentPair, GsEmblem.Orange, GsEmblem.Amber),
+                        start = Offset(w * 0.50f, h * 0.84f),
+                        end = Offset(w * 0.92f, h * 0.19f)
+                    ),
+                    alpha = wp
+                )
+
+                // catch-light along the leading edge
+                drawPath(
+                    lineOf(w, h, listOf(Lw, Aw, Rw)),
+                    Color.White.copy(alpha = 0.40f * wp),
+                    style = Stroke(width = h * 0.005f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
-        }
-    }
-}
 
-/** One circuit trace: a right-angled run ending in a node, as in the intro. */
-private fun DrawScope.trace(
-    w: Float,
-    h: Float,
-    x0: Float,
-    y0: Float,
-    x1: Float,
-    y1: Float,
-    node: Boolean,
-    flip: Boolean = false,
-) {
-    val dir = if (flip) -1f else 1f
-    val path = Path().apply {
-        moveTo(w * x0, h * y0)
-        lineTo(w * (x0 + 0.03f * dir), h * y0)
-        lineTo(w * (x1 - 0.02f * dir), h * y1)
-        lineTo(w * x1, h * y1)
-    }
-    drawPath(
-        path,
-        GsEmblem.Trace.copy(alpha = 0.75f),
-        style = Stroke(width = h * 0.006f, cap = StrokeCap.Round, join = StrokeJoin.Miter)
-    )
-    if (node) {
-        drawCircle(GsEmblem.Amber, radius = h * 0.012f, center = Offset(w * x1, h * y1))
-        drawCircle(
-            GsEmblem.Amber.copy(alpha = 0.35f),
-            radius = h * 0.022f,
-            center = Offset(w * x1, h * y1)
-        )
+            if (p > 0.7f) {
+                // 4. nested inner chevron
+                drawPath(
+                    lineOf(w, h, listOf(IL, IA, IR)),
+                    GsEmblem.VioletSoft.copy(alpha = 0.85f),
+                    style = Stroke(width = h * 0.008f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+
+                // 5. core notch
+                val corePath = pathOf(w, h, core)
+                drawPath(corePath, GsEmblem.GunLo)
+                drawPath(
+                    corePath,
+                    GsEmblem.GunHi.copy(alpha = 0.70f),
+                    style = Stroke(width = h * 0.005f, join = StrokeJoin.Round)
+                )
+            }
+
+            if (p > 0.88f) {
+                // 6. circuit traces with terminal nodes
+                val tp = ((p - 0.88f) / 0.12f).coerceIn(0f, 1f)
+                traces.forEach { (run, node) ->
+                    drawPath(
+                        lineOf(w, h, run),
+                        GsEmblem.Trace.copy(alpha = 0.75f * tp),
+                        style = Stroke(width = h * 0.005f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    val (nx, ny) = node
+                    drawCircle(
+                        GsEmblem.Amber.copy(alpha = 0.30f * tp),
+                        radius = h * 0.020f,
+                        center = Offset(w * nx, h * ny)
+                    )
+                    drawCircle(GsEmblem.Amber, radius = h * 0.011f, center = Offset(w * nx, h * ny))
+                }
+            }
+
+            // 7. studs
+            if (studs && p > 0.6f) {
+                val sp = ((p - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                studs.forEach { (x, y) ->
+                    drawCircle(
+                        GsEmblem.Amber.copy(alpha = 0.90f * sp),
+                        radius = h * 0.0075f,
+                        center = Offset(w * x, h * y)
+                    )
+                }
+            }
+        }
     }
 }
 
 /**
  * Compact, live version of the emblem for chrome.
  *
- * Unlike a logo, the parts are driven by real numbers:
- *  - [energy] fills the two inner rails (free memory fraction)
- *  - [load] drives the core pulse and the trace brightness
- *  - [active] false draws the mark inert (engine off) instead of pretending
- *  - [sweep] animates a light running along the traces, like the film's intro
+ * The same silhouette as [GhostMark], sized for a 40-60dp slot. Unlike a logo,
+ * its parts are driven by real numbers:
+ *
+ *  - [energy] fills the two rails under the wings (free memory fraction)
+ *  - [load] drives the core glow and the trace brightness
+ *  - [active] false draws the mark inert — dashed and desaturated — so "engine
+ *    off" looks off rather than merely idle
+ *  - [sweep] runs a light along the traces, as in the film's opening shot
  */
 @Composable
 fun MarkCore(
@@ -251,23 +275,23 @@ fun MarkCore(
     active: Boolean = true,
     accent: Color = GsEmblem.Red,
     accentPair: Color = GsEmblem.Orange,
-    animate: Boolean = true,
+    showRails: Boolean = true,
 ) {
     val transition = rememberInfiniteTransition(label = "mark")
     val sweep by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(if (active) 2600 else 5200, easing = LinearEasing),
+            tween(if (active) 2400 else 6000, easing = LinearEasing),
             RepeatMode.Restart
         ),
         label = "sweep"
     )
     val pulse by transition.animateFloat(
-        initialValue = 0.75f,
+        initialValue = 0.72f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(900, easing = LinearEasing),
+            tween(if (active) 900 else 2200, easing = LinearEasing),
             RepeatMode.Reverse
         ),
         label = "pulse"
@@ -276,124 +300,109 @@ fun MarkCore(
     Canvas(modifier) {
         val w = size.width
         val h = size.height
-        val side = min(w, h)
-        val cx = w / 2f
+        val a = if (active) 1f else 0.30f
         val e = energy.coerceIn(0f, 1f)
         val l = load.coerceIn(0f, 1f)
-        val a = if (active) 1f else 0.34f
 
-        val grad = Brush.linearGradient(
-            listOf(accent, accentPair),
-            start = Offset(0f, 0f),
-            end = Offset(w, h)
-        )
-
-        // --- wing plate
-        val wingPath = Path().apply {
-            val topY = h * 0.16f
-            moveTo(cx - side * 0.46f, topY)
-            lineTo(cx, h * 0.62f)
-            lineTo(cx + side * 0.46f, topY)
-            lineTo(cx + side * 0.46f, topY + side * 0.20f)
-            lineTo(cx, h * 0.62f + side * 0.20f)
-            lineTo(cx - side * 0.46f, topY + side * 0.20f)
-            close()
-        }
-        drawPath(wingPath, grad, alpha = 0.92f * a)
-
-        // --- leading edge highlight
-        drawPath(
-            Path().apply {
-                moveTo(cx - side * 0.46f, h * 0.16f)
-                lineTo(cx, h * 0.62f)
-                lineTo(cx + side * 0.46f, h * 0.16f)
-            },
-            Color.White.copy(alpha = 0.42f * a),
-            style = Stroke(width = side * 0.014f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-
-        // --- violet skeleton
-        val skeleton = Path().apply {
-            moveTo(cx - side * 0.5f, h * 0.10f)
-            lineTo(cx, h * 0.72f)
-            lineTo(cx + side * 0.5f, h * 0.10f)
-        }
-        drawPath(
-            skeleton,
-            GsEmblem.Violet.copy(alpha = 0.55f * a),
-            style = Stroke(width = side * 0.010f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-
-        // --- energy rails: two bars whose fill is real free memory
-        val railY = h * 0.78f
-        val railW = side * 0.30f
-        val railH = side * 0.045f
-        listOf(cx - railW - side * 0.03f, cx + side * 0.03f).forEach { x ->
-            drawRect(
-                Color(0x22FFFFFF).copy(alpha = 0.13f * a),
-                topLeft = Offset(x, railY),
-                size = Size(railW, railH)
-            )
-            drawRect(
-                brush = grad,
-                topLeft = Offset(x, railY),
-                size = Size(railW * e, railH),
-                alpha = 0.95f * a
-            )
-        }
-
-        // --- core: brightness tracks real CPU load
-        val coreA = (0.35f + 0.65f * l).coerceIn(0f, 1f) * a
-        drawCircle(
-            GsEmblem.Amber.copy(alpha = 0.22f * coreA * pulse),
-            radius = side * 0.15f,
-            center = Offset(cx, h * 0.40f)
-        )
-        drawCircle(
-            brush = grad,
-            radius = side * 0.070f,
-            center = Offset(cx, h * 0.40f),
-            alpha = coreA
-        )
-        drawCircle(
-            Color.White.copy(alpha = 0.55f * coreA),
-            radius = side * 0.028f,
-            center = Offset(cx, h * 0.40f)
-        )
-
-        // --- traces that light up with the sweep, like the film's opening
-        if (active) {
-            val sway = side * 0.02f * (sweep - 0.5f) * 2f
-            listOf(-1f, 1f).forEach { dir ->
-                val tracePath = Path().apply {
-                    moveTo(cx + dir * side * 0.18f, h * 0.56f)
-                    lineTo(cx + dir * side * 0.34f, h * 0.36f)
-                    lineTo(cx + dir * side * 0.44f, h * 0.36f)
-                }
-                drawPath(
-                    tracePath,
-                    GsEmblem.Trace.copy(alpha = 0.45f + 0.45f * sweep),
-                    style = Stroke(width = side * 0.010f, cap = StrokeCap.Round)
+        with(Geo) {
+            // silhouette
+            drawPath(
+                lineOf(w, h, listOf(L, A, R)),
+                GsEmblem.Violet.copy(alpha = 0.90f * a),
+                style = Stroke(
+                    width = h * 0.011f,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                    pathEffect = if (active) null
+                    else PathEffect.dashPathEffect(floatArrayOf(h * 0.06f, h * 0.05f))
                 )
+            )
+
+            // band
+            drawPath(pathOf(w, h, listOf(L, A, R, Ri, Ai, Li)), GsEmblem.Gun, alpha = a)
+
+            // wings, each half with its own gradient so the fold survives at small size
+            drawPath(
+                pathOf(w, h, listOf(Lw, Aw, Ai, Liw)),
+                Brush.linearGradient(
+                    listOf(GsEmblem.RedDeep, accent),
+                    start = Offset(w * 0.10f, h * 0.19f),
+                    end = Offset(w * 0.50f, h * 0.84f)
+                ),
+                alpha = a
+            )
+            drawPath(
+                pathOf(w, h, listOf(Aw, Rw, Riw, Ai)),
+                Brush.linearGradient(
+                    listOf(accentPair, GsEmblem.Amber),
+                    start = Offset(w * 0.50f, h * 0.84f),
+                    end = Offset(w * 0.92f, h * 0.19f)
+                ),
+                alpha = a
+            )
+
+            // leading edge
+            drawPath(
+                lineOf(w, h, listOf(Lw, Aw, Rw)),
+                Color.White.copy(alpha = 0.38f * a),
+                style = Stroke(width = h * 0.006f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // inner chevron
+            drawPath(
+                lineOf(w, h, listOf(IL, IA, IR)),
+                GsEmblem.VioletSoft.copy(alpha = 0.80f * a),
+                style = Stroke(width = h * 0.008f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // traces: lit while active, dashed when not
+            val glow = 0.35f + 0.65f * sweep
+            traces.take(2).forEach { (run, node) ->
+                drawPath(
+                    lineOf(w, h, run),
+                    GsEmblem.Trace.copy(alpha = (if (active) glow else 0.30f * a)),
+                    style = Stroke(width = h * 0.007f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+                val (nx, ny) = node
                 drawCircle(
-                    GsEmblem.Amber.copy(alpha = 0.55f + 0.45f * sweep),
-                    radius = side * 0.016f,
-                    center = Offset(cx + dir * side * 0.44f + sway, h * 0.36f)
+                    GsEmblem.Amber.copy(alpha = if (active) glow else 0.30f * a),
+                    radius = h * 0.016f,
+                    center = Offset(w * nx, h * ny)
                 )
             }
-        } else {
-            // Inert: dashed, desaturated. Reads as "off", not as "idle".
-            listOf(-1f, 1f).forEach { dir ->
-                drawPath(
-                    Path().apply {
-                        moveTo(cx + dir * side * 0.18f, h * 0.56f)
-                        lineTo(cx + dir * side * 0.44f, h * 0.36f)
-                    },
-                    GsEmblem.Violet.copy(alpha = 0.35f),
-                    style = Stroke(
-                        width = side * 0.008f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(side * 0.03f, side * 0.03f))
-                    )
+
+            // core: brightness tracks real load
+            val coreA = (0.30f + 0.70f * l).coerceIn(0f, 1f) * a
+            val (cx, cy) = A.copy(0.500f to 0.560f)
+            drawCircle(
+                GsEmblem.Amber.copy(alpha = 0.26f * coreA * pulse),
+                radius = h * 0.14f,
+                center = Offset(w * cx, h * cy)
+            )
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(Color.White, accent, accentPair),
+                    center = Offset(w * cx, h * cy),
+                    radius = h * 0.10f
+                ),
+                radius = h * 0.070f,
+                center = Offset(w * cx, h * cy),
+                alpha = coreA
+            )
+        }
+
+        // energy rails — two bars whose fill is the real number
+        if (showRails) {
+            val railW = w * 0.26f
+            val railH = (h * 0.035f).coerceAtLeast(1.6f)
+            val railY = h * 1.02f
+            listOf(w * 0.22f, w * 0.52f).forEach { x ->
+                drawRect(Color(0x22FFFFFF), topLeft = Offset(x, railY), size = Size(railW, railH), alpha = 0.22f * a)
+                drawRect(
+                    Brush.linearGradient(listOf(accent, accentPair)),
+                    topLeft = Offset(x, railY),
+                    size = Size(railW * e, railH),
+                    alpha = a
                 )
             }
         }
