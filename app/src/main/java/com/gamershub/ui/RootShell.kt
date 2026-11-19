@@ -156,7 +156,6 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         )
     }
     var iconIdx by remember { mutableIntStateOf(com.gamershub.data.AppIcon.current(context)) }
-    var themeMode by remember { mutableIntStateOf(com.gamershub.data.ThemeMode.current(context)) }
 
     GameCornerTheme(if (customAccent != null) com.gamershub.theme.GC.CUSTOM else accentIdx, customAccent) {
         val accent = LocalAccent.current
@@ -572,16 +571,6 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             customAccent = colour
                             repo.setAccentIndex(com.gamershub.theme.GC.CUSTOM)
                             repo.setCustomAccent(colour.toArgb())
-                        },
-                        iconTheme = themeMode,
-                        onThemeMode = { m ->
-                            themeMode = m
-                            com.gamershub.data.ThemeMode.set(context, m)
-                            Toast.makeText(
-                                context,
-                                if (m == 0) "Following the system theme" else "${com.gamershub.data.ThemeMode.label(m)} mode on",
-                                Toast.LENGTH_SHORT
-                            ).show()
                         },
                         iconIndex = iconIdx,
                         onIcon = { i ->

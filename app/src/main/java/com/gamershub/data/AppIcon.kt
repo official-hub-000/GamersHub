@@ -67,35 +67,3 @@ object AppIcon {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY, i).apply()
     }
 }
-
-/**
- * Light / dark / follow-the-system for the app itself.
- *
- * The in-app palette is accent-driven on a warm near-black base, so "Light" does
- * not repaint every surface — it switches the chrome that has a light variant
- * (window background, status bar icon colour, and the settings previews) and it
- * is the mode the "Pad — Auto" icon would be showing anyway, so the two never
- * disagree.
- */
-object ThemeMode {
-    const val SYSTEM = 0
-    const val DARK = 1
-    const val LIGHT = 2
-
-    private const val PREFS = "gamershub"
-    private const val KEY = "themeMode"
-
-    fun current(ctx: Context): Int =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY, SYSTEM).coerceIn(0, 2)
-
-    fun set(ctx: Context, mode: Int) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(KEY, mode.coerceIn(0, 2)).apply()
-    }
-
-    fun label(mode: Int): String = when (mode) {
-        DARK -> "Dark"
-        LIGHT -> "Light"
-        else -> "System"
-    }
-}

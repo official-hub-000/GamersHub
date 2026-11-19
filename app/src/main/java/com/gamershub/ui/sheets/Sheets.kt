@@ -628,8 +628,6 @@ fun SettingsSheet(
     onCustom: (androidx.compose.ui.graphics.Color) -> Unit = {},
     iconIndex: Int,
     onIcon: (Int) -> Unit,
-    iconTheme: Int,
-    onThemeMode: (Int) -> Unit,
     onLanguage: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -759,25 +757,10 @@ fun SettingsSheet(
         }
         Spacer(Modifier.height(12.dp))
         Card2 {
-            Text("Light or Dark", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
-            Spacer(Modifier.height(3.dp))
-            Text(
-                "System follows the phone. The rest is a forced override.",
-                style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 14.sp
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ModeTile("System", "Auto", iconTheme == 0, Modifier.weight(1f)) { onThemeMode(0) }
-                ModeTile("Dark", "Always", iconTheme == 1, Modifier.weight(1f)) { onThemeMode(1) }
-                ModeTile("Light", "Always", iconTheme == 2, Modifier.weight(1f)) { onThemeMode(2) }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Card2 {
             Text("Icon Look", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
             Spacer(Modifier.height(3.dp))
             Text(
-                "Pad — Auto repaints itself when the phone switches between light and dark",
+                "Auto follows your phone's light or dark setting. Dark and Light pin it.",
                 style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 14.sp
             )
             Spacer(Modifier.height(12.dp))
@@ -851,35 +834,6 @@ private fun DiagnosticsCard() {
                 primary = false
             )
         }
-    }
-}
-
-@Composable
-private fun ModeTile(
-    name: String,
-    caption: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val accent = LocalAccent.current
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (selected) GC.BrownPill else GC.Surface)
-            .then(if (selected) Modifier.border(1.5.dp, accent, RoundedCornerShape(14.dp)) else Modifier)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 6.dp)
-    ) {
-        Text(
-            name,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) accent else GC.TextSoft,
-            fontSize = 15.sp,
-            maxLines = 1
-        )
-        Text(caption, style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 11.sp, maxLines = 1)
     }
 }
 
