@@ -1,5 +1,7 @@
 package com.gamershub.ui.sheets
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import androidx.compose.animation.animateColorAsState
@@ -32,28 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Rocket
-import androidx.compose.material.icons.filled.Search
 import java.util.Locale
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -182,11 +164,11 @@ fun LaunchModeSheet(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             LaunchModeCard(
-                icon = Icons.Filled.Rocket, title = "Tool Shelf", cost = "FREE · panel and boosters",
+                icon = GhIcons.Rocket, title = "Tool Shelf", cost = "FREE · panel and boosters",
                 selected = gameSpace, onSelect = { gameSpace = true }, modifier = Modifier.weight(1f)
             )
             LaunchModeCard(
-                icon = Icons.Filled.Android, title = "Straight In", cost = "FREE · plain start",
+                icon = GhIcons.Android, title = "Straight In", cost = "FREE · plain start",
                 selected = !gameSpace, onSelect = { gameSpace = false }, modifier = Modifier.weight(1f)
             )
         }
@@ -227,7 +209,7 @@ private fun LaunchModeCard(
     ) {
         Box(Modifier.fillMaxWidth().padding(end = 8.dp), contentAlignment = Alignment.TopEnd) {
             if (selected) {
-                AIcon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+                AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
             }
         }
         AIcon(icon, contentDescription = null, tint = if (selected) accent else GC.TextSoft, modifier = Modifier.size(34.dp))
@@ -282,7 +264,7 @@ private fun SlideToOpen(onOpen: () -> Unit) {
                 ),
             contentAlignment = Alignment.Center
         ) {
-            AIcon(Icons.Filled.FastForward, contentDescription = "Enter", tint = Color.White, modifier = Modifier.size(26.dp))
+            AIcon(GhIcons.FastForward, contentDescription = "Enter", tint = Color.White, modifier = Modifier.size(26.dp))
         }
     }
 }
@@ -316,13 +298,13 @@ fun AppSelectorSheet(
     }
     SheetFrame(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconChip(Icons.Filled.Apps, size = 50)
+            IconChip(GhIcons.Apps, size = 50)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("App Picker", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
                 Text("${added.size} Added", style = MaterialTheme.typography.labelMedium, color = LocalAccent.current, fontSize = 14.sp)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(12.dp))
         Row(
@@ -334,7 +316,7 @@ fun AppSelectorSheet(
                 .border(1.dp, RomKit.Stroke, RomKit.R12)
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
-            AIcon(Icons.Filled.Search, contentDescription = null, tint = GC.TextDim, modifier = Modifier.size(20.dp))
+            AIcon(GhIcons.Search, contentDescription = null, tint = GC.TextDim, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) Text("Search apps", color = GC.TextDim, fontSize = 15.sp)
@@ -427,32 +409,32 @@ data class PermConfig(
 
 val PERM_CONFIGS = listOf(
     PermConfig(
-        PermKind.NOTIFICATION, Icons.Filled.Notifications, "REQUIRED · STATUS UPDATES",
+        PermKind.NOTIFICATION, GhIcons.Notifications, "REQUIRED · STATUS UPDATES",
         "Notification Permission",
         "Required to display active service notifications and real-time connection progress.",
         listOf("Shows foreground service status while active", "Provides interactive wireless pairing notifications")
     ),
     PermConfig(
-        PermKind.OVERLAY, Icons.Filled.Apps, "REQUIRED · FLOATING WIDGET",
+        PermKind.OVERLAY, GhIcons.Apps, "REQUIRED · FLOATING WIDGET",
         "Display Over Other Apps",
         "Allows the app to display a compact status indicator and quick-access panel while using other applications.",
         listOf("Displays the floating quick-settings panel when enabled", "Shows real-time system metrics on screen")
     ),
     PermConfig(
-        PermKind.WRITE_SETTINGS, Icons.Filled.Tune, "REQUIRED · SYSTEM PREFERENCES",
+        PermKind.WRITE_SETTINGS, GhIcons.Tune, "REQUIRED · SYSTEM PREFERENCES",
         "Modify System Preferences",
         "Required to adjust display and system preferences according to your saved profiles.",
         listOf("Manages screen brightness and display parameters", "Restores default device settings automatically when finished")
     ),
     PermConfig(
-        PermKind.USAGE, Icons.Filled.PieChart, "REQUIRED · APP DETECTION",
+        PermKind.USAGE, GhIcons.PieChart, "REQUIRED · APP DETECTION",
         "Usage Data Access",
         "Required to identify the active foreground application and record session duration for your selected apps.",
         listOf("Detects when prioritized applications are launched", "Tracks session duration & applies saved preferences"),
         info = "If the toggle is disabled on Android 13+, open App Info ▸ top-right menu ▸ Allow restricted settings."
     ),
     PermConfig(
-        PermKind.SHIZUKU, Icons.Filled.Shield, "OPTIONAL · ADVANCED SERVICE",
+        PermKind.SHIZUKU, GhIcons.Shield, "OPTIONAL · ADVANCED SERVICE",
         "Shizuku Helper Access",
         "Allows the app to connect with the active Shizuku service on your device for system-level configuration management.",
         listOf("Connects to the privileged service automatically", "Enables advanced device & display configuration options")
@@ -477,7 +459,7 @@ fun PermissionSheet(
                 Spacer(Modifier.height(5.dp))
                 Text(config.title, style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onLater)
+            CircleIconButton(GhIcons.Close, onClick = onLater)
         }
         Spacer(Modifier.height(12.dp))
         Column(
@@ -493,7 +475,7 @@ fun PermissionSheet(
             config.checks.forEach { line ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 5.dp)) {
                     Box(Modifier.size(26.dp).clip(CircleShape).background(GC.BrownPill), contentAlignment = Alignment.Center) {
-                        AIcon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
+                        AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(line, style = MaterialTheme.typography.bodyLarge, color = GC.Text, fontSize = 14.sp, lineHeight = 20.sp)
@@ -515,13 +497,13 @@ fun PermissionSheet(
                     .border(1.dp, RomKit.Stroke, RomKit.R12)
                     .padding(14.dp)
             ) {
-                AIcon(Icons.Filled.CheckCircle, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                AIcon(GhIcons.CheckCircle, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
                 Text("Allowed ✓", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 16.sp)
             }
         }
         Spacer(Modifier.height(10.dp))
-        BigButton("Open App Detail", onOpenDetail, Modifier.fillMaxWidth(), primary = false, leadingIcon = Icons.Filled.Settings, textColor = accent)
+        BigButton("Open App Detail", onOpenDetail, Modifier.fillMaxWidth(), primary = false, leadingIcon = GhIcons.Settings, textColor = accent)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             BigButton("Not now", onLater, Modifier.weight(1f), primary = false)
@@ -565,11 +547,11 @@ fun SettingsSheet(
     }
     SheetFrame(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconChip(Icons.Filled.Settings, size = 50)
+            IconChip(GhIcons.Settings, size = 50)
             Spacer(Modifier.width(12.dp))
             Text("Likes", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 25.sp)
             Spacer(Modifier.weight(1f))
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(14.dp))
         Card2 {
@@ -811,7 +793,7 @@ private fun ToneTile(name: String, color: Color, selected: Boolean, modifier: Mo
             Modifier.size(34.dp).clip(CircleShape).background(color),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) AIcon(Icons.Filled.Check, contentDescription = null, tint = GC.inkOn(color), modifier = Modifier.size(18.dp))
+            if (selected) AIcon(GhIcons.Check, contentDescription = null, tint = GC.inkOn(color), modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(7.dp))
         Text(
@@ -853,15 +835,15 @@ fun DisplayTuningSheet(onDismiss: () -> Unit) {
     }
     SheetFrame(onDismiss = onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconChip(Icons.Filled.Palette, size = 50)
+            IconChip(GhIcons.Palette, size = 50)
             Spacer(Modifier.width(12.dp))
             Text("Screen Tweak", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 24.sp, modifier = Modifier.weight(1f))
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(14.dp))
 
         // Navigation Mode
-        TuningCard(icon = Icons.Filled.Language, title = "Button Mode", desc = "Change how you move around your phone") {
+        TuningCard(icon = GhIcons.Language, title = "Button Mode", desc = "Change how you move around your phone") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf("3-Button", "2-Button", "Gestual").forEachIndexed { i, label ->
                     val selected = navMode == i
@@ -902,7 +884,7 @@ fun DisplayTuningSheet(onDismiss: () -> Unit) {
         val targetW = evenNumber(panel.width * (sizePct / 100f).toInt())
         val targetH = evenNumber(panel.height * (sizePct / 100f).toInt())
 
-        TuningCard(icon = Icons.Filled.Apps, title = "Crisp Changer", desc = "Change screen size (Width x Height)") {
+        TuningCard(icon = GhIcons.Apps, title = "Crisp Changer", desc = "Change screen size (Width x Height)") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatPill("Panel ${panel.width}x${panel.height}")
                 StatPill(if (overrideSize.isBlank()) "Stock size" else "Now $overrideSize")
@@ -949,7 +931,7 @@ fun DisplayTuningSheet(onDismiss: () -> Unit) {
         Spacer(Modifier.height(12.dp))
 
         // Density — real `wm density`, so text and layout change together.
-        TuningCard(icon = Icons.Filled.Apps, title = "Width Changer", desc = "Set screen DPI and small width by hand") {
+        TuningCard(icon = GhIcons.Apps, title = "Width Changer", desc = "Set screen DPI and small width by hand") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatPill("Panel ${panel.density} ppi")
                 StatPill(if (overrideDpi.isBlank()) "Stock density" else "Now $overrideDpi ppi")
@@ -1084,7 +1066,7 @@ fun ActivationSheet(
             Box(
                 Modifier.clip(RoundedCornerShape(50)).background(GC.SurfaceHi).clickable(onClick = onDismiss).padding(11.dp)
             ) {
-                AIcon(Icons.Filled.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(18.dp))
+                AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(18.dp))
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1142,7 +1124,7 @@ fun ActivationSheet(
                     .padding(15.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(Icons.Filled.Android, size = 44)
+                    IconChip(GhIcons.Android, size = 44)
                     Spacer(Modifier.width(11.dp))
                     Text("Shizuku Door", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp, modifier = Modifier.weight(1f))
                     Row(
@@ -1154,7 +1136,7 @@ fun ActivationSheet(
                             .padding(horizontal = 13.dp, vertical = 7.dp)
                     ) {
                         if (shizukuActive) {
-                            AIcon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
+                            AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(5.dp))
                         }
                         Text(
@@ -1171,7 +1153,7 @@ fun ActivationSheet(
                         .clickable { logOpen = !logOpen }
                         .padding(vertical = 6.dp)
                 ) {
-                    AIcon(Icons.Filled.FastForward, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
+                    AIcon(GhIcons.FastForward, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Shizuku Log", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp, modifier = Modifier.weight(1f))
                     Text(if (logOpen) "⌃" else "⌄", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp)
@@ -1216,7 +1198,7 @@ fun ActivationSheet(
                     .padding(15.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(Icons.Filled.Dns, size = 44)
+                    IconChip(GhIcons.Dns, size = 44)
                     Spacer(Modifier.width(11.dp))
                     Text("Net Mode", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp, modifier = Modifier.weight(1f))
                 }
@@ -1228,7 +1210,7 @@ fun ActivationSheet(
                         .background(accent.copy(alpha = 0.16f))
                         .padding(horizontal = 11.dp, vertical = 7.dp)
                 ) {
-                    if (adbTcp) AIcon(Icons.Filled.Check, contentDescription = null, tint = accent, modifier = Modifier.size(12.dp))
+                    if (adbTcp) AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(12.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(
                         if (adbTcp) "TCP/IP active on port 5555" else "TCP/IP not active",
@@ -1252,7 +1234,7 @@ fun ActivationSheet(
                     .padding(15.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(Icons.Filled.Dns, size = 44)
+                    IconChip(GhIcons.Dns, size = 44)
                     Spacer(Modifier.width(11.dp))
                     Text("Cordless Debug", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
                 }
@@ -1326,7 +1308,7 @@ fun ActivationSheet(
                     .padding(15.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(Icons.Filled.Dns, size = 44)
+                    IconChip(GhIcons.Dns, size = 44)
                     Spacer(Modifier.width(11.dp))
                     Text("ADB via OTG", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
                 }
@@ -1398,7 +1380,7 @@ fun GameReadySheet(onDone: () -> Unit, onDismiss: () -> Unit) {
     val accent = LocalAccent.current
     SheetFrame(onDismiss = onDismiss) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            IconChip(Icons.Filled.Bolt, size = 62)
+            IconChip(GhIcons.Bolt, size = 62)
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -1429,12 +1411,12 @@ fun GameReadySheet(onDone: () -> Unit, onDismiss: () -> Unit) {
                 .border(1.dp, RomKit.Stroke, RomKit.R12)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            AIcon(Icons.Filled.Info, contentDescription = null, tint = GC.TextDim, modifier = Modifier.size(15.dp))
+            AIcon(GhIcons.Info, contentDescription = null, tint = GC.TextDim, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(8.dp))
             Text("May differ per phone.", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.5.sp)
         }
         Spacer(Modifier.height(16.dp))
-        SlideControl(label = "Slide to warm up", icon = Icons.Filled.Autorenew, onDone = onDone)
+        SlideControl(label = "Slide to warm up", icon = GhIcons.Autorenew, onDone = onDone)
     }
 }
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon for API 26+.
+
+  Without this, Android wraps the legacy PNG in its own plate and scales it to
+  fill the 108dp canvas, which crops the emblem's wing tips — the one part of the
+  shape that makes it recognisable. The foreground layer already carries the
+  emblem inside the 66% safe zone, so the launcher mask can be anything (circle,
+  squircle, teardrop) without losing the silhouette.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_mono" />
+</adaptive-icon>

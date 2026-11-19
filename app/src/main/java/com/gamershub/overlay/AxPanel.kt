@@ -1,5 +1,7 @@
 package com.gamershub.overlay
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.content.Context
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -26,26 +28,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Adjust
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.BrightnessHigh
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.ScreenLockPortrait
-import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.Screenshot
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -381,7 +363,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        TopTile(Icons.Filled.Autorenew, "Refresh\nRate", st.refresh) {
+        TopTile(GhIcons.Autorenew, "Refresh\nRate", st.refresh) {
             st.refresh = cycle(listOf("AUTO", "60Hz", "90Hz", "120Hz", "144Hz"), st.refresh, 1)
             api.work {
                 val hz = when (st.refresh) {
@@ -396,11 +378,11 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
             }
         }
         TopTile(
-            Icons.Filled.Info,
+            GhIcons.Info,
             "Information\nMonitor",
             if (MonitorOverlayService.isRunning) "ON" else "OFF"
         ) { api.nav(AxPage.INFO) }
-        TopTile(Icons.Filled.Dns, "DNS\nTuner", "--") { api.nav(AxPage.NET) }
+        TopTile(GhIcons.Dns, "DNS\nTuner", "--") { api.nav(AxPage.NET) }
     }
 
         // clean accent divider (the old angled beams read as noise, not design)
@@ -486,13 +468,13 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
             )
             Spacer(Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                RoundKey(Icons.Filled.Home, "Base") { api.nav(AxPage.HOME) }
+                RoundKey(GhIcons.Home, "Base") { api.nav(AxPage.HOME) }
                 Spacer(Modifier.width(14.dp))
                 HeroMark(Modifier.size(24.dp))
                 Spacer(Modifier.width(14.dp))
-                RoundKey(Icons.Filled.Settings, "All features") { api.nav(AxPage.MENU) }
+                RoundKey(GhIcons.Settings, "All features") { api.nav(AxPage.MENU) }
                 Spacer(Modifier.width(14.dp))
-                RoundKey(Icons.Filled.PowerSettingsNew, "Close floating icon") { onQuit() }
+                RoundKey(GhIcons.PowerSettingsNew, "Close floating icon") { onQuit() }
             }
         }
         ChevronGauge("RAM", stats.ram, flip = true)
@@ -501,7 +483,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
         Column(Modifier.weight(1f)) {
             Tile(
-                Icons.Filled.GpsFixed,
+                GhIcons.GpsFixed,
                 "Aim Mark",
                 if (CrosshairOverlayService.isRunning) "ON" else "OFF"
             ) {
@@ -509,7 +491,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
                 else CrosshairOverlayService.start(context)
                 api.say(if (CrosshairOverlayService.isRunning) "Crosshair off" else "Crosshair on")
             }
-            Tile(Icons.Filled.ScreenLockPortrait, "Turn\nLock", "AUTO") {
+            Tile(GhIcons.ScreenLockPortrait, "Turn\nLock", "AUTO") {
                 api.work {
                     val auto = withContext(Dispatchers.IO) {
                         Settings.System.getInt(
@@ -528,7 +510,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
                 }
             }
             Tile(
-                Icons.Filled.TouchApp,
+                GhIcons.TouchApp,
                 "Touch\nEnhancer",
                 if (MappingOverlayService.isRunning) "ON" else "OFF"
             ) {
@@ -537,13 +519,13 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
             }
         }
         Column(Modifier.weight(1f)) {
-            Tile(Icons.Filled.Bolt, "Quick\nBoost", "FREE") {
+            Tile(GhIcons.Bolt, "Quick\nBoost", "FREE") {
                 api.work {
                     val report = MemoryCleaner.boost(context)
                     api.say(memoryText("Pace", report, context))
                 }
             }
-            Tile(Icons.Filled.NotificationsOff, "Do Not\nDisturb", "SILENT") {
+            Tile(GhIcons.NotificationsOff, "Do Not\nDisturb", "SILENT") {
                 val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as android.app.NotificationManager
                 val ok = try {
@@ -558,7 +540,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
                 }
                 api.say(if (ok) "Do not disturb toggled" else "Grant DND access to GamersHub")
             }
-            Tile(Icons.Filled.Screenshot, "Screen Grab", "KEEP") {
+            Tile(GhIcons.Screenshot, "Screen Grab", "KEEP") {
                 api.work {
                     val shot = withContext(Dispatchers.IO) { ScreenshotEngine.capture() }
                     api.say(
@@ -569,10 +551,10 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
             }
         }
         Column(Modifier.weight(1f)) {
-            Tile(Icons.Filled.ScreenRotation, "Gyro\nCalibration", if (st.gyro.calibrated) "OK" else "CAL") {
+            Tile(GhIcons.ScreenRotation, "Gyro\nCalibration", if (st.gyro.calibrated) "OK" else "CAL") {
                 api.nav(AxPage.GYRO)
             }
-            Tile(Icons.Filled.BrightnessHigh, "Lock\nBrightness", "LOCK") {
+            Tile(GhIcons.BrightnessHigh, "Lock\nBrightness", "LOCK") {
                 api.work {
                     val now = withContext(Dispatchers.IO) {
                         try {
@@ -599,7 +581,7 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
                     )
                 }
             }
-            Tile(Icons.Filled.Adjust, "Show\nTaps", if (st.showTaps) "ON" else "OFF") {
+            Tile(GhIcons.Adjust, "Show\nTaps", if (st.showTaps) "ON" else "OFF") {
                 api.work {
                     val target = !st.showTaps
                     val ok = withContext(Dispatchers.IO) {
@@ -624,19 +606,19 @@ private fun HomePage(api: AxApi, stats: PanelStats, startedAt: Long, onQuit: () 
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MemoryKey("CLEAN", Icons.Filled.CleaningServices) {
+        MemoryKey("CLEAN", GhIcons.CleaningServices) {
             api.work {
                 val report = MemoryCleaner.clean(context)
                 api.say(memoryText("Wipe", report, context))
             }
         }
-        MemoryKey("BOOST", Icons.Filled.Bolt) {
+        MemoryKey("BOOST", GhIcons.Bolt) {
             api.work {
                 val report = MemoryCleaner.boost(context)
                 api.say(memoryText("Pace", report, context))
             }
         }
-        MemoryKey("DEEP CLEAN", Icons.Filled.Memory) {
+        MemoryKey("DEEP CLEAN", GhIcons.Memory) {
             api.work {
                 val report = MemoryCleaner.deepClean(context)
                 api.say(memoryText("Deep wipe", report, context))
@@ -750,7 +732,7 @@ private fun PageHeader(api: AxApi, title: String) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AIcon(
-                    Icons.Filled.ArrowBack,
+                    GhIcons.ArrowBack,
                     contentDescription = "Return",
                     tint = Color.White,
                     modifier = Modifier.size(13.dp)
@@ -776,16 +758,16 @@ private fun PageHeader(api: AxApi, title: String) {
 @Composable
 private fun MenuPage(api: AxApi) {
     val items = listOf(
-        Triple(AxPage.GFX, Icons.Filled.Speed, "Graphics unlock · texture, shadows, AA, Vulkan"),
-        Triple(AxPage.UPSCALE, Icons.Filled.Bolt, "Real upscaling · lossless scale · GLES shader"),
-        Triple(AxPage.DISPLAY, Icons.Filled.Autorenew, "Refresh rate · render scale · resolution"),
-        Triple(AxPage.PERF, Icons.Filled.Memory, "Sweep / boost / deep clean · thermal"),
-        Triple(AxPage.NET, Icons.Filled.Dns, "Ping, jitter, DNS and radio tuning"),
-        Triple(AxPage.SPOOF, Icons.Filled.Settings, "Phone identity + display spoof"),
-        Triple(AxPage.REC, Icons.Filled.Screenshot, "Display recording and Go Live"),
-        Triple(AxPage.OVERLAY, Icons.Filled.GpsFixed, "Crosshair, HUD, touch mapping, pointer"),
-        Triple(AxPage.GYRO, Icons.Filled.ScreenRotation, "Gyro bias calibration and sensitivity"),
-        Triple(AxPage.INFO, Icons.Filled.Info, "Live CPU / RAM / FPS / thermal readout")
+        Triple(AxPage.GFX, GhIcons.Speed, "Graphics unlock · texture, shadows, AA, Vulkan"),
+        Triple(AxPage.UPSCALE, GhIcons.Bolt, "Real upscaling · lossless scale · GLES shader"),
+        Triple(AxPage.DISPLAY, GhIcons.Autorenew, "Refresh rate · render scale · resolution"),
+        Triple(AxPage.PERF, GhIcons.Memory, "Sweep / boost / deep clean · thermal"),
+        Triple(AxPage.NET, GhIcons.Dns, "Ping, jitter, DNS and radio tuning"),
+        Triple(AxPage.SPOOF, GhIcons.Settings, "Phone identity + display spoof"),
+        Triple(AxPage.REC, GhIcons.Screenshot, "Display recording and Go Live"),
+        Triple(AxPage.OVERLAY, GhIcons.GpsFixed, "Crosshair, HUD, touch mapping, pointer"),
+        Triple(AxPage.GYRO, GhIcons.ScreenRotation, "Gyro bias calibration and sensitivity"),
+        Triple(AxPage.INFO, GhIcons.Info, "Live CPU / RAM / FPS / thermal readout")
     )
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
         items.forEach { item ->
@@ -1798,7 +1780,7 @@ private fun StepRow(label: String, value: String, onPlus: () -> Unit, onMinus: (
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = AX_DIM, fontSize = 9.sp, modifier = Modifier.weight(1f))
-        RoundKey(Icons.Filled.ArrowBack, "-", onMinus)
+        RoundKey(GhIcons.ArrowBack, "-", onMinus)
         Box(Modifier.width(86.dp), contentAlignment = Alignment.Center) {
             Text(
                 value,
@@ -1809,7 +1791,7 @@ private fun StepRow(label: String, value: String, onPlus: () -> Unit, onMinus: (
                 overflow = TextOverflow.Ellipsis
             )
         }
-        RoundKey(Icons.Filled.ArrowBack, "+", onPlus)
+        RoundKey(GhIcons.ArrowBack, "+", onPlus)
     }
 }
 

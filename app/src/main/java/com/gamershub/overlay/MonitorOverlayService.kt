@@ -1,5 +1,7 @@
 package com.gamershub.overlay
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -22,8 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -215,7 +215,7 @@ class MonitorOverlayService : Service(), androidx.lifecycle.LifecycleOwner,
                                 contentAlignment = Alignment.Center
                             ) {
                                 androidx.compose.foundation.Image(
-                                    imageVector = Icons.Filled.Close,
+                                    imageVector = GhIcons.Close,
                                     contentDescription = "Shut watcher",
                                     colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White),
                                     modifier = Modifier.size((9 * scale).dp)

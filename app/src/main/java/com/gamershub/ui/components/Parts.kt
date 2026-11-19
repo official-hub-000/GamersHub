@@ -61,25 +61,43 @@ import com.gamershub.theme.RomKit
 import com.gamershub.theme.LocalAccent
 
 /**
- * Animated icon — every icon in the app gently breathes (scale + glow),
- * so the whole UI feels alive.
+ * The app's icon primitive.
+ *
+ * The previous version breathed and glowed on *every* icon in the app, including
+ * every row of every list. That is two infinite animations per icon — expensive
+ * on a list, and it fought the new icon set: the GamersHub glyphs are built from
+ * hard 45-degree facets, and a 2% scale wobble on a 1.75u miter stroke visibly
+ * blurs the corners on a low-density screen.
+ *
+ * So the animation is now opt-in ([animated] = false by default) and reserved for
+ * places where the icon is the focus, not for chrome.
  */
 @Composable
 fun AIcon(
     imageVector: ImageVector,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    tint: Color = androidx.compose.material3.LocalContentColor.current
+    tint: Color = androidx.compose.material3.LocalContentColor.current,
+    animated: Boolean = false,
 ) {
+    if (!animated) {
+        androidx.compose.material3.Icon(
+            imageVector,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = modifier
+        )
+        return
+    }
     val transition = rememberInfiniteTransition(label = "aicon")
     val breathe by transition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.02f,
+        targetValue = 1.015f,
         animationSpec = infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "breathe"
     )
     val glow by transition.animateFloat(
-        initialValue = 0.8f,
+        initialValue = 0.82f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "glow"

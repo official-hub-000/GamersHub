@@ -1,5 +1,7 @@
 package com.gamershub.ui.sheets
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -20,11 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -121,7 +118,7 @@ fun RecordSheet(onDismiss: () -> Unit) {
                 Text("Screen Grab", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
                 Text("MP4 · saved in Movies/GamersHub", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(12.dp))
 
@@ -177,7 +174,7 @@ fun RecordSheet(onDismiss: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                leadingIcon = Icons.Filled.PlayArrow
+                leadingIcon = GhIcons.PlayArrow
             )
         }
         if (permissionError.isNotBlank()) {
@@ -219,7 +216,7 @@ private fun RecordingRow(context: Context, file: File, accent: Color) {
             Text(Recorder.formatSize(file.length()), color = GC.TextDim, fontSize = 10.sp)
         }
         Icon(
-            Icons.Filled.PlayArrow,
+            GhIcons.PlayArrow,
             contentDescription = "Run",
             tint = accent,
             modifier = Modifier
@@ -241,7 +238,7 @@ private fun RecordingRow(context: Context, file: File, accent: Color) {
         )
         Spacer(Modifier.width(12.dp))
         Icon(
-            Icons.Filled.Share,
+            GhIcons.Share,
             contentDescription = "Pass along",
             tint = GC.TextSoft,
             modifier = Modifier
@@ -264,7 +261,7 @@ private fun RecordingRow(context: Context, file: File, accent: Color) {
         )
         Spacer(Modifier.width(12.dp))
         Icon(
-            Icons.Filled.Delete,
+            GhIcons.Delete,
             contentDescription = "Erase",
             tint = GC.TextDim,
             modifier = Modifier
@@ -324,7 +321,7 @@ fun LiveSheet(onDismiss: () -> Unit) {
                 Text("Go On Air", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
                 Text("Real air · H.264", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(12.dp))
 
@@ -379,7 +376,7 @@ fun LiveSheet(onDismiss: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                leadingIcon = Icons.Filled.PlayArrow
+                leadingIcon = GhIcons.PlayArrow
             )
         }
         if (message.isNotBlank()) {
@@ -539,7 +536,7 @@ fun GraphicsSheet(onDismiss: () -> Unit) {
                     fontSize = 12.sp
                 )
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
 
         Spacer(Modifier.height(10.dp))
@@ -648,7 +645,7 @@ fun SpoofSheet(onDismiss: () -> Unit) {
                 Text("Phone Swap", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
                 Text("Screen · name · tags", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -762,7 +759,7 @@ fun OverlayHubSheet(onDismiss: () -> Unit) {
                 Text("Floating Bubble", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
                 Text("Bubble and panel", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp)
             }
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

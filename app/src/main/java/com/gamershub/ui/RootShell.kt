@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import android.Manifest
@@ -44,15 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Gamepad
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Widgets
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.foundation.gestures.Orientation
@@ -115,11 +108,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 enum class Tab(val icon: ImageVector, val label: String) {
-    LOBBY(Icons.Filled.Gamepad, "Lobby"),
-    LABS(Icons.Filled.Science, "Game-Labs"),
-    TOOLS(Icons.Filled.Widgets, "Tools"),
-    ROOT(Icons.Filled.Security, "Root"),
-    PROFILE(Icons.Filled.Person, "Profile")
+    LOBBY(GhIcons.Gamepad, "Lobby"),
+    LABS(GhIcons.Science, "Game-Labs"),
+    TOOLS(GhIcons.Widgets, "Tools"),
+    ROOT(GhIcons.Security, "Root"),
+    PROFILE(GhIcons.Person, "Profile")
 }
 
 sealed interface SheetState {
@@ -849,7 +842,7 @@ private fun PresetsSheet(presets: List<String>, onClear: () -> Unit, onDismiss: 
     SheetFrame(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Screen Setups", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp, modifier = Modifier.weight(1f))
-            CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+            CircleIconButton(GhIcons.Close, onClick = onDismiss)
         }
         Spacer(Modifier.height(12.dp))
         if (presets.isEmpty()) {
@@ -870,7 +863,7 @@ private fun PresetsSheet(presets: List<String>, onClear: () -> Unit, onDismiss: 
             }
         }
         Spacer(Modifier.height(10.dp))
-        BigButton("Clear All", onClear, Modifier.fillMaxWidth(), primary = false, leadingIcon = Icons.Filled.Delete, textColor = accent)
+        BigButton("Clear All", onClear, Modifier.fillMaxWidth(), primary = false, leadingIcon = GhIcons.Delete, textColor = accent)
     }
 }
 
@@ -1071,7 +1064,7 @@ private fun MonitorStrip(context: android.content.Context) {
                 .background(Color(0xF0221314))
                 .padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
-            AIcon(Icons.Filled.Add, contentDescription = "Pull", tint = accentNow(), modifier = Modifier.size(14.dp))
+            AIcon(GhIcons.Add, contentDescription = "Pull", tint = accentNow(), modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(6.dp))
             StripChip("CPU", stats[0])
             StripChip("RAM", stats[1])

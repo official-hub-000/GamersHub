@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,19 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -159,7 +148,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         if (!snap.ready) {
             Card(borderColor = Color(0x55E2A03A)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Security, null, tint = accent, modifier = Modifier.size(20.dp))
+                    Icon(GhIcons.Security, null, tint = accent, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Root not granted", color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -195,7 +184,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         } else {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(20.dp))
+                    Icon(GhIcons.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Root active", color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -365,9 +354,9 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
             )
             Spacer(Modifier.height(10.dp))
             val depth = listOf(
-                Triple(Icons.Filled.Tune, "Drop caches + fstrim", "free RAM and trim storage"),
-                Triple(Icons.Filled.Refresh, "Reset display", "size and density back to native"),
-                Triple(Icons.Filled.Block, "Unfreeze all", "re-enable packages frozen earlier"),
+                Triple(GhIcons.Tune, "Drop caches + fstrim", "free RAM and trim storage"),
+                Triple(GhIcons.Refresh, "Reset display", "size and density back to native"),
+                Triple(GhIcons.Block, "Unfreeze all", "re-enable packages frozen earlier"),
             )
             depth.forEach { (icon, title, sub) ->
                 Row(
@@ -435,7 +424,7 @@ private fun ModuleCard(
     Card(borderColor = if (module.enabled) Color(0x334ADE80) else Color(0x228A94A8)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Filled.Extension,
+                GhIcons.Extension,
                 null,
                 tint = when {
                     module.pendingRemove -> Color(0xFFE23A3A)
@@ -459,7 +448,7 @@ private fun ModuleCard(
                 )
             }
             Icon(
-                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                if (expanded) GhIcons.KeyboardArrowUp else GhIcons.KeyboardArrowDown,
                 "details",
                 tint = GC.TextDim,
                 modifier = Modifier
@@ -644,7 +633,7 @@ private fun StoreSection(
 
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.CloudDownload, null, tint = accent, modifier = Modifier.size(20.dp))
+            Icon(GhIcons.CloudDownload, null, tint = accent, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text("Download modules directly", color = GC.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)

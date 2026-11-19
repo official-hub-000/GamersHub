@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import androidx.compose.foundation.background
@@ -19,17 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -90,7 +81,7 @@ fun ProfileScreen(
                     maxLines = 1
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AIcon(Icons.Filled.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
+                    AIcon(GhIcons.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(sessionTime(), style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 13.sp, maxLines = 1)
                 }
@@ -98,7 +89,7 @@ fun ProfileScreen(
             Spacer(Modifier.width(8.dp))
             StatusPill(version, orange = false)
             Spacer(Modifier.width(8.dp))
-            CircleIconButton(Icons.Filled.Settings, onClick = onSettings)
+            CircleIconButton(GhIcons.Settings, onClick = onSettings)
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x14FFFFFF)))
 
@@ -183,7 +174,7 @@ fun ProfileScreen(
                     .background(GC.TagBg)
                     .padding(horizontal = 11.dp, vertical = 5.dp)
             ) {
-                AIcon(Icons.Filled.Shield, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
+                AIcon(GhIcons.Shield, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(7.dp))
                 Text("FREE", style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp)
             }
@@ -211,7 +202,7 @@ fun ProfileScreen(
         // ---- Privilege service ----
         Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconChip(Icons.Filled.Shield, size = 44)
+                IconChip(GhIcons.Shield, size = 44)
                 Spacer(Modifier.width(12.dp))
                 Text("Door Helper", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp, modifier = Modifier.weight(1f))
                 StatusPill(if (envLevel >= 2) "Expert Tier" else if (envLevel >= 1) "Basic Tier" else "Not Activated")
@@ -263,7 +254,7 @@ fun ProfileScreen(
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AIcon(Icons.Filled.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
+                AIcon(GhIcons.AccessTime, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
                 Spacer(Modifier.width(5.dp))
                 Text(sessionTime(), style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp)
 
@@ -278,7 +269,7 @@ fun ProfileScreen(
 
         Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconChip(Icons.Filled.Wifi, size = 36)
+                IconChip(GhIcons.Wifi, size = 36)
                 Spacer(Modifier.width(10.dp))
                 Text("Net", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 StatusPill(if (ping in 0..120) "Good" else if (ping > 0) "Slow" else "Offline")
@@ -308,7 +299,7 @@ fun ProfileScreen(
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconChip(Icons.Filled.Campaign, size = 48)
+                IconChip(GhIcons.Campaign, size = 48)
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Join the Official Channel", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -320,12 +311,12 @@ fun ProfileScreen(
                 }
                 Spacer(Modifier.width(10.dp))
                 CircleIconButton(
-                    Icons.Filled.Chat,
+                    GhIcons.Chat,
                     onClick = { openLink(context, "https://github.com/spideycandy973-web/GamersHub/issues") }
                 )
                 Spacer(Modifier.width(8.dp))
                 CircleIconButton(
-                    Icons.Filled.MusicNote,
+                    GhIcons.MusicNote,
                     onClick = { openLink(context, "https://github.com/spideycandy973-web/GamersHub/releases") }
                 )
             }
@@ -385,7 +376,7 @@ private fun CpuCard(cpu: DeviceStats.Cpu, modifier: Modifier = Modifier) {
     Card(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CPU Pace", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-            IconChip(Icons.Filled.Speed, size = 36)
+            IconChip(GhIcons.Speed, size = 36)
         }
         Spacer(Modifier.height(10.dp))
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -408,7 +399,7 @@ private fun RamCard(mem: DeviceStats.Mem, modifier: Modifier = Modifier) {
     Card(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("RAM Use", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-            IconChip(Icons.Filled.Storage, size = 36)
+            IconChip(GhIcons.Storage, size = 36)
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.Bottom) {
@@ -428,7 +419,7 @@ private fun StorageCard(storage: DeviceStats.Storage, modifier: Modifier = Modif
     Card(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Room", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-            IconChip(Icons.Filled.Storage, size = 36, bg = GC.SurfaceHi)
+            IconChip(GhIcons.Storage, size = 36, bg = GC.SurfaceHi)
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.Bottom) {

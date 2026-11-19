@@ -1,5 +1,7 @@
 package com.gamershub
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import android.os.BatteryManager
@@ -52,19 +54,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -87,10 +76,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.GenericShape
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Path
@@ -341,7 +326,7 @@ private fun GameSpaceScreen(
             val tabH = h * 0.100f
             val tabY = h * 0.075f
             val tabX = w * 0.396f
-            val tabs = listOf(Icons.Filled.Bolt, Icons.Filled.Speed, Icons.Filled.Tune, Icons.Filled.Apps)
+            val tabs = listOf(GhIcons.Bolt, GhIcons.Speed, GhIcons.Tune, GhIcons.Apps)
             val activeTab = when {
                 showControl -> 1
                 showTexture -> 2
@@ -405,7 +390,7 @@ private fun GameSpaceScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.offset(x = w * 0.738f, y = h * 0.082f)
             ) {
-                AIcon(Icons.Filled.Bolt, contentDescription = "Free room", tint = accentNow(), modifier = Modifier.size(h * 0.032f))
+                AIcon(GhIcons.Bolt, contentDescription = "Free room", tint = accentNow(), modifier = Modifier.size(h * 0.032f))
                 Spacer(Modifier.width(w * 0.004f))
                 Text(
                     "${(freeMb / 10)}",
@@ -447,7 +432,7 @@ private fun GameSpaceScreen(
                 contentAlignment = Alignment.Center
             ) {
                 AIcon(
-                    Icons.Filled.PowerSettingsNew,
+                    GhIcons.PowerSettingsNew,
                     contentDescription = "Shut tool shelf",
                     tint = GC.InkText,
                     modifier = Modifier.size(h * 0.048f)
@@ -961,7 +946,7 @@ private fun AppCard(
                 contentAlignment = Alignment.Center
             ) {
                 AIcon(
-                    Icons.Filled.PhotoCamera,
+                    GhIcons.PhotoCamera,
                     contentDescription = if (art != null) "Snap the card again" else "Snap this app",
                     tint = if (art != null) GC.InkText else accentNow(),
                     modifier = Modifier.size(artSize * 0.30f)
@@ -983,7 +968,7 @@ private fun AppCard(
                     .clickable(onClick = onFilter),
                 contentAlignment = Alignment.Center
             ) {
-                AIcon(Icons.Filled.Tune, contentDescription = "Surface smooth", tint = GC.InkText, modifier = Modifier.size(artSize * 0.30f))
+                AIcon(GhIcons.Tune, contentDescription = "Surface smooth", tint = GC.InkText, modifier = Modifier.size(artSize * 0.30f))
             }
         }
 
@@ -1010,7 +995,7 @@ private fun AppCard(
                             .clip(RoundedCornerShape(artSize * 0.23f))
                     )
                 } else {
-                    AIcon(Icons.Filled.Apps, contentDescription = null, tint = GC.InkDim, modifier = Modifier.size(artSize * 0.45f))
+                    AIcon(GhIcons.Apps, contentDescription = null, tint = GC.InkDim, modifier = Modifier.size(artSize * 0.45f))
                 }
             }
             Spacer(Modifier.width(artSize * 0.20f))
@@ -1127,7 +1112,7 @@ private fun AppStrip(
                         .clickable(onClick = onAdd)
                         .padding(horizontal = iconSize * 0.35f)
                 ) {
-                    AIcon(Icons.Filled.Add, contentDescription = null, tint = accentNow(), modifier = Modifier.size(iconSize * 0.7f))
+                    AIcon(GhIcons.Add, contentDescription = null, tint = accentNow(), modifier = Modifier.size(iconSize * 0.7f))
                     Spacer(Modifier.width(iconSize * 0.2f))
                     Text("PICK APPS", style = MaterialTheme.typography.labelLarge, color = GC.InkText, fontSize = nameSize)
                 }
@@ -1140,7 +1125,7 @@ private fun AppStrip(
                         .clickable(onClick = onAdd),
                     contentAlignment = Alignment.Center
                 ) {
-                    AIcon(Icons.Filled.Add, contentDescription = "Pick apps", tint = GC.InkText, modifier = Modifier.size(iconSize * 0.65f))
+                    AIcon(GhIcons.Add, contentDescription = "Pick apps", tint = GC.InkText, modifier = Modifier.size(iconSize * 0.65f))
                 }
             }
         }
@@ -1254,7 +1239,7 @@ private fun EmptyCard(text: String, onClick: () -> Unit, modifier: Modifier = Mo
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AIcon(Icons.Filled.Apps, contentDescription = null, tint = GC.InkDim, modifier = Modifier.size(26.dp))
+        AIcon(GhIcons.Apps, contentDescription = null, tint = GC.InkDim, modifier = Modifier.size(26.dp))
         Spacer(Modifier.height(10.dp))
         Text(
             text,
@@ -1323,7 +1308,7 @@ private fun LaunchBar(
                 .clickable(onClick = onBoost)
                 .padding(horizontal = height * 0.18f)
         ) {
-            AIcon(Icons.Filled.Bolt, contentDescription = "Memory boost", tint = Color.White, modifier = Modifier.size(height * 0.34f))
+            AIcon(GhIcons.Bolt, contentDescription = "Memory boost", tint = Color.White, modifier = Modifier.size(height * 0.34f))
             Spacer(Modifier.width(width * 0.012f))
             Text(
                 "${(freeMb / 100).coerceAtLeast(0)}",
@@ -1668,14 +1653,14 @@ private fun ControlCenter(
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    AIcon(Icons.Filled.Close, contentDescription = "Shut", tint = GC.InkText, modifier = Modifier.size(16.dp))
+                    AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.InkText, modifier = Modifier.size(16.dp))
                 }
             }
             Spacer(Modifier.height(14.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 ToolTile(
-                    icon = Icons.Filled.Videocam,
+                    icon = GhIcons.Videocam,
                     category = "CAPTURE",
                     title = if (Recorder.isRecording) "End clip" else "Screen clip",
                     active = Recorder.isRecording,
@@ -1685,7 +1670,7 @@ private fun ControlCenter(
                     else ProjectionActivity.launch(context, ProjectionActivity.MODE_RECORD)
                 }
                 ToolTile(
-                    icon = Icons.Filled.Podcasts,
+                    icon = GhIcons.Podcasts,
                     category = "LIVE",
                     title = if (Stream.isStreaming) "End air" else "Go On Air (RTMP)",
                     active = Stream.isStreaming,
@@ -1710,14 +1695,14 @@ private fun ControlCenter(
                     }
                 }
                 ToolTile(
-                    icon = Icons.Filled.Bolt,
+                    icon = GhIcons.Bolt,
                     category = "OVERLAY",
                     title = if (panelRunning) "Panel on" else "Panel off",
                     active = panelRunning,
                     modifier = Modifier.weight(1f)
                 ) { onOpenPanel() }
                 ToolTile(
-                    icon = Icons.Filled.Memory,
+                    icon = GhIcons.Memory,
                     category = "MEMORY",
                     title = "Quick Ram",
                     active = false,
@@ -1735,7 +1720,7 @@ private fun ControlCenter(
             Spacer(Modifier.height(9.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 ToolTile(
-                    icon = Icons.Filled.CleaningServices,
+                    icon = GhIcons.CleaningServices,
                     category = "MEMORY",
                     title = "Deep wipe",
                     active = false,
@@ -1750,21 +1735,21 @@ private fun ControlCenter(
                     }
                 }
                 ToolTile(
-                    icon = Icons.Filled.Tune,
+                    icon = GhIcons.Tune,
                     category = "GRAPHICS",
                     title = "Surface · shade",
                     active = false,
                     modifier = Modifier.weight(1f)
                 ) { onTextureSettings() }
                 ToolTile(
-                    icon = Icons.Filled.TouchApp,
+                    icon = GhIcons.TouchApp,
                     category = "CONFIG",
                     title = "Tap settings",
                     active = false,
                     modifier = Modifier.weight(1f)
                 ) { onTouchSettings() }
                 ToolTile(
-                    icon = Icons.Filled.Apps,
+                    icon = GhIcons.Apps,
                     category = "APPS",
                     title = "My picks",
                     active = false,
@@ -1935,7 +1920,7 @@ private fun TexturePanel(pkg: String, repo: AppRepo, appName: String, onDismiss:
                 Box(
                     Modifier.size(32.dp).clip(CircleShape).background(Color(0x1AFFFFFF)).clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
-                ) { AIcon(Icons.Filled.Close, contentDescription = "Shut", tint = GC.InkText, modifier = Modifier.size(16.dp)) }
+                ) { AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.InkText, modifier = Modifier.size(16.dp)) }
             }
             Spacer(Modifier.height(12.dp))
             Column(
@@ -2458,7 +2443,7 @@ private fun SidePanel(
                 }
                 Box(
                     Modifier.clip(CutCornerShape(4.dp)).background(Color(0x22FFFFFF)).clickable(onClick = onDismiss).padding(10.dp)
-                ) { AIcon(Icons.Filled.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(18.dp)) }
+                ) { AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(18.dp)) }
             }
             Spacer(Modifier.height(16.dp))
             Column(
@@ -2538,7 +2523,7 @@ private fun AppsPanel(
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AIcon(Icons.Filled.Apps, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                AIcon(GhIcons.Apps, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text("MY PICKS", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -2553,7 +2538,7 @@ private fun AppsPanel(
                     Modifier.size(30.dp).clip(CircleShape).background(Color(0x22FFFFFF)).clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    AIcon(Icons.Filled.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(16.dp))
+                    AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.Text, modifier = Modifier.size(16.dp))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -2573,7 +2558,7 @@ private fun AppsPanel(
                         .clickable(onClick = onPickApps)
                         .padding(horizontal = 18.dp, vertical = 11.dp)
                 ) {
-                    AIcon(Icons.Filled.Apps, contentDescription = null, tint = Color(0xFF17100A), modifier = Modifier.size(16.dp))
+                    AIcon(GhIcons.Apps, contentDescription = null, tint = Color(0xFF17100A), modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("PICK APPS", style = MaterialTheme.typography.labelLarge, color = Color(0xFF17100A), fontSize = 13.sp, letterSpacing = 1.sp)
                 }

@@ -1,5 +1,7 @@
 package com.gamershub.ui.sheets
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -22,12 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -86,7 +82,7 @@ private fun SheetTitle(title: String, subtitle: String, onDismiss: () -> Unit) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 22.sp)
             Text(subtitle, style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp)
         }
-        CircleIconButton(Icons.Filled.Close, onClick = onDismiss)
+        CircleIconButton(GhIcons.Close, onClick = onDismiss)
     }
     Spacer(Modifier.height(12.dp))
 }
@@ -178,7 +174,7 @@ fun PingOptimizerSheet(onDismiss: () -> Unit) {
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
+                    Icon(GhIcons.Refresh, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
                     Text("RUN AGAIN", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
@@ -260,7 +256,7 @@ fun PingOptimizerSheet(onDismiss: () -> Unit) {
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            leadingIcon = Icons.Filled.PlayArrow
+            leadingIcon = GhIcons.PlayArrow
         )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -515,7 +511,7 @@ fun MappingEditorSheet(onDismiss: () -> Unit) {
                     )
                 }
                 Icon(
-                    Icons.Filled.Delete,
+                    GhIcons.Delete,
                     contentDescription = "Erase",
                     tint = GC.TextDim,
                     modifier = Modifier
@@ -588,7 +584,7 @@ fun MappingEditorSheet(onDismiss: () -> Unit) {
                     text = if (MappingOverlayService.isRunning) "HIDE OVERLAY" else "SHOW OVERLAY",
                     onClick = { MappingOverlayService.toggle(context) },
                     modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = if (MappingOverlayService.isRunning) Icons.Filled.Close else Icons.Filled.PlayArrow
+                    leadingIcon = if (MappingOverlayService.isRunning) GhIcons.Close else GhIcons.PlayArrow
                 )
             }
             Box(Modifier.weight(1f)) {

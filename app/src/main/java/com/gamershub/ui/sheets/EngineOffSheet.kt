@@ -1,5 +1,7 @@
 package com.gamershub.ui.sheets
 
+import com.gamershub.ui.icons.GhIcons
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,10 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -80,7 +78,7 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Filled.PowerSettingsNew,
+                GhIcons.PowerSettingsNew,
                 null,
                 tint = if (report == null) Color(0xFFE2A03A) else Color(0xFF4ADE80),
                 modifier = Modifier.size(22.dp)
@@ -152,7 +150,7 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
             ) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Warning, null, tint = Color(0xFFE2A03A), modifier = Modifier.size(15.dp))
+                        Icon(GhIcons.Warning, null, tint = Color(0xFFE2A03A), modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("What it cannot undo", color = GC.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
@@ -220,7 +218,7 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
             // ---- result
             val r = report!!
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
+                Icon(GhIcons.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(r.summary(), color = GC.Text, fontSize = 14.sp)
             }

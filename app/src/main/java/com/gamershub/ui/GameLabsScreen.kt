@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import androidx.compose.animation.animateColorAsState
@@ -22,21 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Dialpad
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -136,7 +123,7 @@ fun GameLabsScreen(
                     .border(1.dp, RomKit.Stroke, RomKit.R12)
                     .padding(horizontal = 11.dp, vertical = 7.dp)
             ) {
-                AIcon(Icons.Filled.Bolt, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
+                AIcon(GhIcons.Bolt, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(5.dp))
                 Text("LV.$envLevel", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 13.sp)
                 Spacer(Modifier.width(8.dp))
@@ -178,9 +165,9 @@ fun GameLabsScreen(
                     ) {
                         AIcon(
                             when (t) {
-                                LabsTab.ALL -> Icons.Filled.Extension
-                                LabsTab.VISUAL -> Icons.Filled.GraphicEq
-                                LabsTab.CONFIGS -> Icons.Filled.Settings
+                                LabsTab.ALL -> GhIcons.Extension
+                                LabsTab.VISUAL -> GhIcons.GraphicEq
+                                LabsTab.CONFIGS -> GhIcons.Settings
                             },
                             contentDescription = null,
                             tint = if (selected) GC.OnAccent else GC.TextSoft,
@@ -214,7 +201,7 @@ fun GameLabsScreen(
             if (tab == LabsTab.ALL && activeCount > 0) {
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconChip(Icons.Filled.Dialpad, size = 46)
+                        IconChip(GhIcons.Dialpad, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Shut It All Down", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
@@ -253,7 +240,7 @@ fun GameLabsScreen(
                 SectionLabel("Tap Likes")
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconChip(Icons.Filled.TouchApp, size = 46)
+                        IconChip(GhIcons.TouchApp, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Magic Pad Mapper", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -281,7 +268,7 @@ fun GameLabsScreen(
                     }
                     Divider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconChip(Icons.Filled.TouchApp, size = 46)
+                        IconChip(GhIcons.TouchApp, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Tap Speed", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -300,7 +287,7 @@ fun GameLabsScreen(
                 SectionLabel("Screen Likes")
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconChip(Icons.Filled.Dns, size = 46)
+                        IconChip(GhIcons.Dns, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Setup Saver", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -314,7 +301,7 @@ fun GameLabsScreen(
                     }
                     Divider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconChip(Icons.Filled.VideogameAsset, size = 46)
+                        IconChip(GhIcons.VideogameAsset, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Screen Tweak", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -336,7 +323,7 @@ fun GameLabsScreen(
                             .fillMaxWidth()
                             .clickable(onClick = onGameReady)
                     ) {
-                        IconChip(Icons.Filled.Bolt, size = 46)
+                        IconChip(GhIcons.Bolt, size = 46)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Ready to Play", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -397,7 +384,7 @@ private fun DnsTunerCard(onToggle: (String, Boolean) -> Unit) {
     }
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconChip(Icons.Filled.Dns, size = 46)
+            IconChip(GhIcons.Dns, size = 46)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Net Delay Fixer", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -510,7 +497,7 @@ private fun SessionMonitorCard(on: Boolean, toggleState: (String) -> Boolean, on
     }
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconChip(Icons.Filled.GraphicEq, size = 46)
+            IconChip(GhIcons.GraphicEq, size = 46)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Run Watcher", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 18.sp)
@@ -632,7 +619,7 @@ private fun CheckRow(
                     .clickable { onToggle(key, !checked) },
                 contentAlignment = Alignment.Center
             ) {
-                if (checked) AIcon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                if (checked) AIcon(GhIcons.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
             }
         }
     }

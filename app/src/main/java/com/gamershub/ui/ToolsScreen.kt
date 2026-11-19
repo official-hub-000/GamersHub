@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,27 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Adjust
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Screenshot
-import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Widgets
-import androidx.compose.material.icons.filled.PowerOff
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -187,7 +168,7 @@ fun ToolsScreen(
         val engineOn = com.gamershub.core.Engine.isOn
         val rootReady = com.gamershub.core.root.RootShell.ready()
         ToolRow(
-            icon = Icons.Filled.PowerSettingsNew,
+            icon = GhIcons.PowerSettingsNew,
             title = if (engineOn) "Engine On" else "Engine Off",
             subtitle = when {
                 !engineOn -> "nothing is running — root, Shizuku, overlays, capture all off"
@@ -216,7 +197,7 @@ fun ToolsScreen(
             configLabel = "OFF"
         )
         ToolRow(
-            icon = Icons.Filled.AdminPanelSettings,
+            icon = GhIcons.AdminPanelSettings,
             title = "Root",
             subtitle = com.gamershub.core.root.RootShell.statusLabel(),
             active = rootReady,
@@ -269,7 +250,7 @@ fun ToolsScreen(
             }
         }
         ToolRow(
-            icon = Icons.Filled.Widgets,
+            icon = GhIcons.Widgets,
             title = "Floating Bubble",
             subtitle = "Bubble and panel",
             active = on("panel"),
@@ -278,7 +259,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("panel") }
         )
         ToolRow(
-            icon = Icons.Filled.Speed,
+            icon = GhIcons.Speed,
             title = "Info Watcher",
             subtitle = "FPS · CPU · GPU · RAM · TEMP · PING",
             active = on("monitor"),
@@ -287,7 +268,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("monitor") }
         )
         ToolRow(
-            icon = Icons.Filled.GpsFixed,
+            icon = GhIcons.GpsFixed,
             title = "Aim Mark",
             subtitle = "7 styles · colour · fade · turn",
             active = on("crosshair"),
@@ -296,7 +277,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("crosshair") }
         )
         ToolRow(
-            icon = Icons.Filled.Adjust,
+            icon = GhIcons.Adjust,
             title = "Key Mapper",
             subtitle = "Key taps sent as the shell",
             active = on("mapping"),
@@ -305,7 +286,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("mapping") }
         )
         ToolRow(
-            icon = Icons.Filled.TouchApp,
+            icon = GhIcons.TouchApp,
             title = "Mouse Pointer",
             subtitle = if (on("mouseDevice")) "Mouse plugged in" else "Finger pad",
             active = on("mouse"),
@@ -316,7 +297,7 @@ fun ToolsScreen(
 
         SectionHead("STUDIO")
         ToolRow(
-            icon = Icons.Filled.Videocam,
+            icon = GhIcons.Videocam,
             title = if (on("recording")) "Capture…" else "Screen Grab",
             subtitle = "MP4 · up to 4K · mic off by default",
             active = on("recording"),
@@ -326,7 +307,7 @@ fun ToolsScreen(
             configLabel = "OPEN"
         )
         ToolRow(
-            icon = Icons.Filled.Podcasts,
+            icon = GhIcons.Podcasts,
             title = if (on("live")) "On air now" else "Go On Air",
             subtitle = "Real air to any site link",
             active = on("live"),
@@ -336,7 +317,7 @@ fun ToolsScreen(
             configLabel = "OPEN"
         )
         ToolRow(
-            icon = Icons.Filled.AutoAwesome,
+            icon = GhIcons.AutoAwesome,
             title = "View Boost",
             subtitle = "Draw scale · Vulkan · surface and shade keys",
             active = false,
@@ -345,7 +326,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("graphics") }
         )
         ToolRow(
-            icon = Icons.Filled.Smartphone,
+            icon = GhIcons.Smartphone,
             title = "Phone Swap",
             subtitle = "Phone looks · screen, name, tags",
             active = false,
@@ -356,7 +337,7 @@ fun ToolsScreen(
 
         SectionHead("NETWORK")
         ToolRow(
-            icon = Icons.Filled.CenterFocusStrong,
+            icon = GhIcons.CenterFocusStrong,
             title = "Delay Fixer",
             subtitle = "Net wait · jitter · private DNS",
             active = false,
@@ -369,7 +350,7 @@ fun ToolsScreen(
         SectionHead("MEMORY${if (lastClean.isEmpty()) "" else " · $lastClean"}")
 
         ToolRow(
-            icon = Icons.Filled.CleaningServices,
+            icon = GhIcons.CleaningServices,
             title = "Free Memory",
             subtitle = "Free held apps · trim caches",
             active = false,
@@ -385,7 +366,7 @@ fun ToolsScreen(
             configLabel = "CLEAN"
         )
         ToolRow(
-            icon = Icons.Filled.Bolt,
+            icon = GhIcons.Bolt,
             title = "Quick Ram",
             subtitle = "Wipe and drop cache · quick free memory",
             active = false,
@@ -401,7 +382,7 @@ fun ToolsScreen(
             configLabel = "BOOST"
         )
         ToolRow(
-            icon = Icons.Filled.DeleteSweep,
+            icon = GhIcons.DeleteSweep,
             title = "Deep wipe",
             subtitle = "Kill hidden apps · trim · drop cache",
             active = false,
@@ -421,7 +402,7 @@ fun ToolsScreen(
             configLabel = "DEEP"
         )
         ToolRow(
-            icon = Icons.Filled.ScreenRotation,
+            icon = GhIcons.ScreenRotation,
             title = "Tilt Tune",
             subtitle = "Tilt grab · feel · live read",
             active = false,
@@ -430,7 +411,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("gyro") }
         )
         ToolRow(
-            icon = Icons.Filled.Tune,
+            icon = GhIcons.Tune,
             title = "Screen Tweak",
             subtitle = "Crisp · DPI · HZ rate",
             active = false,
@@ -441,7 +422,7 @@ fun ToolsScreen(
 
         SectionHead("CAPTURE & SPACE")
         ToolRow(
-            icon = Icons.Filled.Screenshot,
+            icon = GhIcons.Screenshot,
             title = "Screen Grab",
             subtitle = ScreenshotEngine.DIR,
             active = false,
@@ -461,7 +442,7 @@ fun ToolsScreen(
             configLabel = "CAPTURE"
         )
         ToolRow(
-            icon = Icons.Filled.Widgets,
+            icon = GhIcons.Widgets,
             title = "Tool Shelf",
             subtitle = "Sideways in-game hub",
             active = false,
@@ -471,7 +452,7 @@ fun ToolsScreen(
             configLabel = "OPEN"
         )
         ToolRow(
-            icon = Icons.Filled.Tune,
+            icon = GhIcons.Tune,
             title = "Saved Looks",
             subtitle = "Loaded screen looks",
             active = false,
@@ -480,7 +461,7 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("presets") }
         )
         ToolRow(
-            icon = Icons.Filled.Bolt,
+            icon = GhIcons.Bolt,
             title = "Power Up",
             subtitle = if (on("shizuku")) "Shizuku linked" else "Link Shizuku for full power",
             active = on("shizuku"),

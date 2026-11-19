@@ -1,5 +1,7 @@
 package com.gamershub.ui
 
+import com.gamershub.ui.icons.GhIcons
+
 import com.gamershub.ui.components.AIcon
 
 import androidx.compose.foundation.Image
@@ -21,14 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Gamepad
-import androidx.compose.material.icons.filled.Rocket
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -133,7 +127,7 @@ fun LobbyScreen(
                         .padding(horizontal = 16.dp, vertical = 11.dp)
                 ) {
                     Box(Modifier.size(42.dp).clip(RomKit.R12).background(RomKit.Panel2), contentAlignment = Alignment.Center) {
-                        AIcon(Icons.Filled.Apps, contentDescription = null, tint = accent, modifier = Modifier.size(21.dp))
+                        AIcon(GhIcons.Apps, contentDescription = null, tint = accent, modifier = Modifier.size(21.dp))
                     }
                     Spacer(Modifier.width(10.dp))
                     Column {
@@ -172,7 +166,7 @@ fun LobbyScreen(
                             Text("ROOM", style = RomKit.MonoValue, color = RomKit.TextHi)
                         }
                         Spacer(Modifier.width(8.dp))
-                        AIcon(Icons.Filled.Rocket, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
+                        AIcon(GhIcons.Rocket, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
                     }
                 }
             }
@@ -198,7 +192,7 @@ fun LobbyScreen(
                 Text("Pick games", style = RomKit.Caption.copy(fontSize = 12.sp), color = RomKit.TextHi)
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.size(25.dp).clip(CircleShape).background(accent), contentAlignment = Alignment.Center) {
-                    AIcon(Icons.Filled.Add, contentDescription = null, tint = RomKit.OnEmber, modifier = Modifier.size(15.dp))
+                    AIcon(GhIcons.Add, contentDescription = null, tint = RomKit.OnEmber, modifier = Modifier.size(15.dp))
                 }
             }
         }
@@ -215,7 +209,7 @@ fun LobbyScreen(
                     .border(1.dp, RomKit.Stroke, RomKit.R18)
                     .padding(vertical = 26.dp, horizontal = 18.dp)
             ) {
-                IconChip(Icons.Filled.Gamepad, size = 64)
+                IconChip(GhIcons.Gamepad, size = 64)
                 Spacer(Modifier.height(13.dp))
                 Text("Nothing found on this phone", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 20.sp)
                 Spacer(Modifier.height(6.dp))
@@ -234,7 +228,7 @@ fun LobbyScreen(
                         .clickable(onClick = onAddGames)
                         .padding(horizontal = 22.dp, vertical = 11.dp)
                 ) {
-                    AIcon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    AIcon(GhIcons.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
                     Text("Pick games", style = MaterialTheme.typography.labelLarge, color = Color.White, fontSize = 15.sp)
                 }
@@ -267,7 +261,7 @@ fun LobbyScreen(
                                 Text("${playMinutes(app.pkg)}m", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 13.sp)
                             }
                         }
-                        CircleIconButton(Icons.Filled.ChevronRight, onClick = { onGameTap(app) })
+                        CircleIconButton(GhIcons.ChevronRight, onClick = { onGameTap(app) })
                     }
                 }
             }
