@@ -45,6 +45,7 @@ import com.gamershub.core.root.ModuleManager
 import com.gamershub.core.root.ModuleStore
 import com.gamershub.core.root.RootShell
 import com.gamershub.core.root.RootTools
+import com.gamershub.ui.components.BigButton
 import com.gamershub.theme.GC
 import com.gamershub.theme.LocalAccent
 import com.gamershub.theme.RomKit
@@ -104,6 +105,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     } else emptyList(),
                     suBackend = com.gamershub.core.root.SuManager.backendName(),
                     canManageSu = com.gamershub.core.root.SuManager.canManage(),
+                    temp = runCatching { com.gamershub.core.root.TempRoot.inspect(context) }.getOrNull(),
                 )
             }
             delay(2500)
@@ -275,6 +277,22 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
         // ---------------------------------------------------------- flash
         // ---------------------------------------------------------- store
+        // ---------------------------------------------------------- temporary root
+        SectionHead("TEMPORARY ROOT")
+        TempRootSection(
+            facts = snap.temp,
+            accent = accent,
+            busy = busy,
+            onRelease = {
+                scope.launch {
+                    busy = "releasing"
+                    message = withContext(Dispatchers.IO) { com.gamershub.core.root.TempRoot.release(context) }
+                    busy = ""
+                }
+            }
+        )
+        Spacer(Modifier.height(16.dp))
+
         // ---------------------------------------------------------- superuser
         SectionHead("SUPERUSER")
         SuSection(
@@ -452,6 +470,7 @@ private data class Snapshot(
     val grants: List<com.gamershub.core.root.SuManager.Grant> = emptyList(),
     val suBackend: String = "",
     val canManageSu: Boolean = false,
+    val temp: com.gamershub.core.root.TempRoot.Facts? = null,
 )
 
 @Composable
@@ -555,6 +574,111 @@ private fun Card(
  * If it cannot read, it says so — an empty list that means "no access" would look
  * identical to "no apps have root", and those are very different answers.
  */
+/**
+ * Temporary root: what this device actually has, and what it costs.
+ *
+ * The card is deliberately plain about the two facts a user needs — whether root
+ * survives a reboot, and whether SELinux is enforcing. Everything else is detail.
+ * The exploit path (DFRoot / DirtyFrag) is documented in TempRoot.kt rather than
+ * shipped: it needs a per-kernel `.ko` and a native build this app does not have, and
+ * a wrong offset costs a phone rather than a build.
+ */
+@Composable
+private fun TempRootSection(
+    facts: com.gamershub.core.root.TempRoot.Facts?,
+    accent: Color,
+    busy: String,
+    onRelease: () -> Unit
+) {
+    val kind = facts?.kind ?: com.gamershub.core.root.TempRoot.Kind.NONE
+    Card(
+        borderColor = when (kind) {
+            com.gamershub.core.root.TempRoot.Kind.PERSISTENT -> accent.copy(alpha = 0.35f)
+            com.gamershub.core.root.TempRoot.Kind.TEMPORARY -> Color(0x66E0A33A)
+            com.gamershub.core.root.TempRoot.Kind.SESSION -> Color(0x6659A0E0)
+            com.gamershub.core.root.TempRoot.Kind.NONE -> RomKit.Stroke
+        }
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when (kind) {
+                        com.gamershub.core.root.TempRoot.Kind.PERSISTENT -> "Persistent root"
+                        com.gamershub.core.root.TempRoot.Kind.TEMPORARY -> "Temporary root"
+                        com.gamershub.core.root.TempRoot.Kind.SESSION -> "Session root"
+                        com.gamershub.core.root.TempRoot.Kind.NONE -> "No root session"
+                    },
+                    color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    when (kind) {
+                        com.gamershub.core.root.TempRoot.Kind.PERSISTENT ->
+                            "survives a reboot · ${facts?.manager ?: "manager"}"
+                        com.gamershub.core.root.TempRoot.Kind.TEMPORARY ->
+                            "lives until reboot · no manager owns su"
+                        com.gamershub.core.root.TempRoot.Kind.SESSION ->
+                            "held by this app only · released with the engine"
+                        com.gamershub.core.root.TempRoot.Kind.NONE ->
+                            "the engine runs on Shizuku or app-level features"
+                    },
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            if (busy.isNotBlank()) Text(busy.uppercase(), color = accent, fontSize = 11.sp)
+        }
+
+        if (facts != null) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniFact("KERNEL", facts.kernel.take(22))
+                MiniFact("SELINUX", facts.selinux)
+                MiniFact("UPTIME", facts.uptime)
+            }
+            if (facts.suPath != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("su · ${facts.suPath}", color = GC.TextDim, fontSize = 11.sp, maxLines = 1)
+            }
+            facts.notes.forEach { line ->
+                Spacer(Modifier.height(6.dp))
+                Text("· $line", color = GC.TextDim, fontSize = 12.sp)
+            }
+        }
+
+        if (facts?.rootReady == true) {
+            Spacer(Modifier.height(10.dp))
+            BigButton(
+                text = "Release root now",
+                onClick = onRelease,
+                primary = false
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+        // Say the limitation out loud instead of shipping a dead button.
+        Text(
+            "GamersHub does not exploit the kernel to gain root. A per-boot root from a " +
+                "kernel bug needs a prebuilt module for your exact kernel, and a wrong offset " +
+                "bricks the phone. If one is already installed on this device, everything " +
+                "above works against it.",
+            color = GC.TextDim.copy(alpha = 0.85f),
+            fontSize = 11.sp
+        )
+    }
+}
+
+@Composable
+private fun MiniFact(label: String, value: String) {
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(GC.SurfaceHi)
+            .padding(horizontal = 9.dp, vertical = 6.dp)
+    ) {
+        Text(label, color = GC.TextDim, fontSize = 8.sp, letterSpacing = 0.8.sp)
+        Text(value, color = GC.Text, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
 @Composable
 private fun SuSection(
     grants: List<com.gamershub.core.root.SuManager.Grant>,

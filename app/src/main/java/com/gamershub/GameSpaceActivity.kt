@@ -59,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -135,18 +136,27 @@ class GameSpaceActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         val pkg = intent.getStringExtra(EXTRA_PKG) ?: ""
         val repo = AppRepo(applicationContext)
+        // The master switch gates the hub itself. With the engine off Game Space is a
+        // read-only preview: it opens so the user can see where things are and turn
+        // the engine on, but nothing privileged or persistent runs behind it.
+        val engineOnAtLaunch = com.gamershub.core.Engine.isOn
         setContent {
             val customArgb = runCatching { repo.customAccent() }.getOrDefault(0)
             val customTint = if (customArgb != 0) androidx.compose.ui.graphics.Color(customArgb) else null
             GameCornerTheme(if (customTint != null) com.gamershub.theme.GC.CUSTOM else repo.accentIndex(), customTint) {
-                var showIntro by remember { mutableStateOf(true) }
+                // No intro film when the engine is off: the intro is part of the
+                // product experience, not something that should play over a hub that
+                // is not allowed to do anything.
+                var showIntro by remember { mutableStateOf(engineOnAtLaunch) }
                 androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
                     GameSpaceScreen(
                         pkg = pkg,
                         repo = repo,
                         onClose = { finish() },
                         onLaunch = { p ->
-                            repo.launch(p)
+                            // Launching is privileged work: with the engine off the hub
+                            // asks for the switch first instead of doing it anyway.
+                            if (com.gamershub.core.Engine.isOn) repo.launch(p)
                         }
                     )
                     if (showIntro) {
@@ -238,6 +248,9 @@ private fun GameSpaceScreen(
     var showDisplay by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
     var panelRunning by remember { mutableStateOf(FloatingPanelService.isRunning) }
+    // Bumped by the Control Center switch so the gate banner and the launch path
+    // re-read Engine immediately instead of waiting for the next stats tick.
+    var engineState by remember { mutableIntStateOf(0) }
 
     // ---- live device numbers (all real) ----
     val mem by produceState(initialValue = DeviceStats.mem(context)) {
@@ -261,12 +274,57 @@ private fun GameSpaceScreen(
     val perform = performScore(cpu.pct, mem.pct, battery.second)
     val others = library.filter { it.pkg != currentPkg }
 
+    // Live engine state, read every recompose: toggling it in the Control Center
+    // must change the banner immediately, not on the next visit.
+    val engineLive = run { engineState; com.gamershub.core.Engine.isOn }
+
     Box(Modifier.fillMaxSize().background(GC.Void)) {
         GsBackdrop(currentIcon, Modifier.fillMaxSize())
         // safe-area aware canvas: the status bar can never sit on top of the console
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val w = maxWidth
             val h = maxHeight
+
+            // ---------- engine gate ----------
+            if (!engineLive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .offset(x = w * 0.045f, y = h * 0.012f)
+                        .width(w * 0.910f)
+                        .glass(
+                            shape = RoundedCornerShape(10.dp),
+                            lift = 0.2f,
+                            accent = Color(0xFFE0A33A),
+                            tint = Color(0xFF1A1409)
+                        )
+                        .border(1.dp, Color(0x66E0A33A), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    AIcon(
+                        GhIcons.PowerSettingsNew,
+                        contentDescription = null,
+                        tint = Color(0xFFE0A33A),
+                        modifier = Modifier.size(h * 0.026f)
+                    )
+                    Spacer(Modifier.width(w * 0.008f))
+                    Text(
+                        "ENGINE OFF",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFFE0A33A),
+                        fontSize = (h.value * 0.019f).sp,
+                        letterSpacing = (h.value * 0.002f).sp
+                    )
+                    Spacer(Modifier.width(w * 0.010f))
+                    Text(
+                        "read-only · turn the engine on in the Control Center to launch and tune",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = GC.InkSoft,
+                        fontSize = (h.value * 0.018f).sp,
+                        maxLines = 1
+                    )
+                }
+            }
 
             // ---------- top bar ----------
             GsMark(
@@ -625,7 +683,8 @@ private fun GameSpaceScreen(
                 panelRunning = !panelRunning
                 if (panelRunning) FloatingPanelService.start(context) else FloatingPanelService.stop(context)
             },
-            panelRunning = panelRunning
+            panelRunning = panelRunning,
+            onEngineChanged = { engineState++ }
         )
     }
 
@@ -1646,13 +1705,18 @@ private fun ControlCenter(
     onTextureSettings: () -> Unit,
     onPickApps: () -> Unit,
     onOpenPanel: () -> Unit,
-    panelRunning: Boolean
+    panelRunning: Boolean,
+    /** Fired after the gate is toggled so the hub re-reads Engine. */
+    onEngineChanged: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("gamershub", android.content.Context.MODE_PRIVATE) }
     var memNote by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
+    // The master switch, same rule as everywhere else: read Engine, never cache it.
+    var engineTick by remember { mutableIntStateOf(0) }
+    val engineOn = run { engineTick; com.gamershub.core.Engine.isOn }
 
     Box(
         Modifier
@@ -1701,7 +1765,77 @@ private fun ControlCenter(
                     AIcon(GhIcons.Close, contentDescription = "Shut", tint = GC.InkText, modifier = Modifier.size(16.dp))
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
+
+            // ---- MASTER ENGINE ------------------------------------------------
+            // The same switch as the lobby, in the place a player actually is when
+            // they want to stop everything. Off tears down root, Shizuku, overlays
+            // and capture and restores the phone; it is not a pause.
+            val gateAccent = if (engineOn) accentNow() else Color(0xFF6B7280)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glass(
+                        shape = RoundedCornerShape(14.dp),
+                        lift = if (engineOn) 0.9f else 0.25f,
+                        accent = gateAccent
+                    )
+                    .then(if (engineOn) Modifier.accentBloom(accentNow(), 0.14f) else Modifier)
+                    .border(1.dp, gateAccent.copy(alpha = if (engineOn) 0.5f else 0.18f), RoundedCornerShape(14.dp))
+                    .clickable {
+                        if (engineOn) {
+                            com.gamershub.core.Engine.stopEverything(context)
+                            memNote = "engine off · phone restored"
+                        } else {
+                            com.gamershub.core.Engine.start(context, wantRoot = false)
+                            memNote = com.gamershub.core.Engine.statusLine(context)
+                        }
+                        engineTick++
+                        onEngineChanged()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Box(
+                    Modifier.size(8.dp).clip(CircleShape).background(gateAccent)
+                )
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "MASTER ENGINE",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (engineOn) accentNow() else GC.InkDim,
+                        fontSize = 10.sp,
+                        letterSpacing = 1.4.sp
+                    )
+                    Text(
+                        if (engineOn) "On · every tool below is live" else "Off · nothing runs, nothing changed",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (engineOn) GC.InkText else GC.InkDim,
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
+                }
+                // the same 46x26 knocker as the lobby switch, at the same size
+                Box(
+                    Modifier
+                        .width(46.dp)
+                        .height(26.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (engineOn) gateAccent.copy(alpha = 0.28f) else Color(0xFF1B2029))
+                        .border(1.dp, if (engineOn) gateAccent else Color(0xFF2A3140), RoundedCornerShape(50))
+                ) {
+                    Box(
+                        Modifier
+                            .align(if (engineOn) Alignment.CenterEnd else Alignment.CenterStart)
+                            .padding(horizontal = 4.dp)
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(if (engineOn) gateAccent else Color(0xFF6B7280))
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 ToolTile(
