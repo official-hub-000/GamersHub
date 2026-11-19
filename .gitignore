@@ -16,3 +16,7 @@
 google_drive/
 
 # RE relay inputs (temporary)
+
+# Python byproducts from tools/
+__pycache__/
+*.pyc

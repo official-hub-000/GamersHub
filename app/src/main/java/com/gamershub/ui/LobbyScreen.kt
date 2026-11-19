@@ -104,7 +104,7 @@ fun LobbyScreen(
             // The emblem is the door. Tapping it opens the slide-to-enter sheet,
             // so there is exactly one way into Game Space and it is deliberate.
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_pad_mark),
+                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_float_emblem),
                 contentDescription = "Enter Game Space",
                 modifier = Modifier
                     .align(Alignment.TopEnd)

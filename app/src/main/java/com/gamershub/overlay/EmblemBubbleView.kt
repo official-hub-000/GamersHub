@@ -44,7 +44,7 @@ class EmblemBubbleView(context: Context) : View(context) {
     private val markPx = 44f * density
 
     private val emblem: Bitmap? = runCatching {
-        BitmapFactory.decodeResource(resources, com.gamershub.R.drawable.ic_pad_mark)
+        BitmapFactory.decodeResource(resources, com.gamershub.R.drawable.ic_float_emblem)
     }.getOrNull()?.let { source ->
         runCatching {
             Bitmap.createScaledBitmap(source, markPx.toInt(), markPx.toInt(), true)

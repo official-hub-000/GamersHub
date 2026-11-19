@@ -138,7 +138,7 @@ fun LogoLaunchSheet(
     SheetFrame(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_pad_mark),
+                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_float_emblem),
                 contentDescription = null,
                 modifier = Modifier.size(52.dp)
             )

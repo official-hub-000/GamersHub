@@ -1,27 +1,37 @@
-"""GamersHub launcher icon — the gamepad from the intro film.
+"""GamersHub launcher icon — the flat red gamepad from the intro, traced.
 
-The intro ends on a flat red controller, and the launcher should be the same
-object. Everything is chamfered (no curves) so it stays in the icon language we
-already use: 45°/90° edges only, one weight, flat fills.
+This is not a redraw. BODY below was traced from the film still: the silhouette
+was segmented, its contour walked, smoothed and resampled to 56 points, then
+normalised to the pad's bounding box. The aspect ratio (1.939:1) and the slim
+tapered grips are the film's, not a guess.
 
-Outputs, all derived from one geometry pass:
+Control geometry is measured off the same still:
+
+  d-pad   0.159 wide, 0.335 tall, arms 0.053 thick, centre (0.286, 0.317)
+  minus   0.079 x 0.029 at x 0.458-0.537, centred vertically on the d-pad
+  dots    four circles, r 0.0355, diamond at (0.6475/0.7095/0.7705, 0.1965-0.437)
+
+Colour is sampled from the body: it is a horizontal ramp (#ff4a3f left to
+#dc1d13 right) with a slight darkening toward the bottom, and a pale rim
+(#ff9591) that catches the light along the lower silhouette.
+
+Outputs, all from one geometry pass:
 
   adaptive (API 26+)   ic_launcher_pad[_round].xml        follows the system
-                       ic_launcher_pad_dark.xml           forced dark plate
-                       ic_launcher_pad_light.xml          forced light plate
-                       ic_launcher_pad_mono.xml           themed-icon silhouette
+                       ic_launcher_pad_dark.xml           pinned dark plate
+                       ic_launcher_pad_light.xml          pinned light plate
+                       ic_launcher_pad_mono.xml           themed silhouette
   foregrounds          drawable-nodpi/ic_pad_fg.png        light-mode art
                        drawable-night-nodpi/ic_pad_fg.png  dark-mode art
-                       drawable-nodpi/ic_pad_fg_{light,dark,mono}.png  fixed copies
+                       drawable-nodpi/ic_pad_fg_{light,dark,mono}.png
   legacy (pre-26)      mipmap-*/ic_launcher_pad{,_dark,_light,_mono}{,_round}.png
+  in-app               drawable-nodpi/ic_pad_mark.png     the pad alone
+                       drawable-*/ic_stat_gh.png           status bar
   settings previews    drawable-nodpi/ic_pick_{auto,dark,light,mono}.png
 
-The dark/light split happens two ways on purpose:
-  * the "auto" look reads @color/ic_pad_bg and @drawable/ic_pad_fg, both of
-    which have a -night variant, so the launcher swaps the whole plate when the
-    phone flips to light mode;
-  * the forced looks point at the same art under fixed names, so a user who
-    pins dark mode keeps it even in daylight.
+The pad itself is identical in every one of those. Only the plate changes with
+light and dark, which is what keeps the mark exact while still following the
+system.
 """
 from PIL import Image, ImageDraw, ImageFilter
 import os
@@ -29,193 +39,213 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "app/src/main/res")
 
-# ---- palette ---------------------------------------------------------------
-RED_HI   = (0xFF, 0x53, 0x3B)
-RED_LO   = (0xB4, 0x0C, 0x1A)
-DARK_HI  = (0xFF, 0x46, 0x2E)
-DARK_LO  = (0x9C, 0x08, 0x14)
-LIGHT_HI = (0xE8, 0x24, 0x30)
-LIGHT_LO = (0x9E, 0x0A, 0x18)
-EMBER    = (0xFF, 0x7A, 0x18)
-RIM      = (0xFF, 0x8A, 0x5A)
-SHOULDER = (0x7A, 0x08, 0x12)   # darker slab under the top corners
-MAROON   = (0x5E, 0x06, 0x0E)   # touchpad strip
-INK      = (0x14, 0x0A, 0x0C)
-PLATE_D  = (0x0A, 0x0B, 0x11)   # dark plate
-PLATE_L  = (0xF2, 0xF0, 0xEB)   # light plate
+# ---- palette (sampled from the still) --------------------------------------
+TL = (0xFF, 0x50, 0x40)
+TR = (0xF9, 0x2A, 0x20)
+BL = (0xF0, 0x35, 0x28)
+BR = (0xCF, 0x1A, 0x12)
+RIM = (0xFF, 0x95, 0x91)
+INK = (0x06, 0x04, 0x05)   # the controls are near-black, not pure black
+GLOW = (0xFF, 0x3A, 0x28)
+PLATE_D = (0x05, 0x06, 0x0A)
+PLATE_L = (0xF4, 0xF2, 0xED)
 
-# ---- geometry --------------------------------------------------------------
-# Local space is 1000x1000 with the pad's bounding box filling it. Clockwise
-# from the top-left chamfer. Every corner is a hard 45 degree cut.
+ASPECT = 1.9389            # width / height of the traced silhouette
+
+# ---- silhouette: traced, normalised to the pad's own bounding box ----------
 BODY = [
-    (352,  74), (648,  74),          # top edge
-    (700, 104),                      # right shoulder crease
-    (818, 150), (948, 236),          # right wing
-    (996, 404),                      # right flank
-    (952, 590), (886, 806),          # right grip
-    (776, 902), (664, 842),          # right grip tip + inner
-    (600, 706), (580, 664),          # notch right
-    (420, 664), (400, 706),          # notch left
-    (336, 842), (224, 902),          # left grip inner + tip
-    (114, 806), ( 48, 590),          # left grip
-    (  4, 404),                      # left flank
-    ( 52, 236), (182, 150),          # left wing
-    (300, 104),                      # left shoulder crease
-]
-# shoulder buttons: darker chamfered slabs tucked under the top corners
-SHOULDERS = [
-    [(300, 104), (352, 74), (352, 132), (312, 158)],
-    [(700, 104), (648, 74), (648, 132), (688, 158)],
-]
-# d-pad: a plus sign inside the left half of the face
-DP_CX, DP_CY, DP_ARM, DP_HALF = 268, 404, 54, 116
-DPAD = [
-    (DP_CX - DP_ARM, DP_CY - DP_HALF), (DP_CX + DP_ARM, DP_CY - DP_HALF),
-    (DP_CX + DP_ARM, DP_CY - DP_ARM),  (DP_CX + DP_HALF, DP_CY - DP_ARM),
-    (DP_CX + DP_HALF, DP_CY + DP_ARM), (DP_CX + DP_ARM, DP_CY + DP_ARM),
-    (DP_CX + DP_ARM, DP_CY + DP_HALF), (DP_CX - DP_ARM, DP_CY + DP_HALF),
-    (DP_CX - DP_ARM, DP_CY + DP_ARM),  (DP_CX - DP_HALF, DP_CY + DP_ARM),
-    (DP_CX - DP_HALF, DP_CY - DP_ARM), (DP_CX - DP_ARM, DP_CY - DP_ARM),
-]
-# four face buttons in a diamond, plus two small shoulder pills
-BTN_CX, BTN_CY, BTN_R, BTN_OFF = 742, 404, 36, 84
-# No touchpad strip: at 48dp it smudges into a mouth. The d-pad and the button
-# diamond carry the read on their own.
-BTNS = [
-    (BTN_CX, BTN_CY - BTN_OFF), (BTN_CX, BTN_CY + BTN_OFF),
-    (BTN_CX - BTN_OFF, BTN_CY), (BTN_CX + BTN_OFF, BTN_CY),
+    (0.2066, 0.0367), (0.2382, 0.0064), (0.2909, 0.0026), (0.3438, 0.0029), (0.3967, 0.0005), (0.4496, 0.0033),
+    (0.5024, 0.0000), (0.5554, 0.0000), (0.5906, 0.0000), (0.6436, 0.0000), (0.6965, 0.0000), (0.7494, 0.0001),
+    (0.7976, 0.0394), (0.8435, 0.0902), (0.8791, 0.1637), (0.8957, 0.2243), (0.9207, 0.3152), (0.9422, 0.4087),
+    (0.9592, 0.5063), (0.9753, 0.6044), (0.9916, 0.7025), (0.9980, 0.8029), (0.9847, 0.8665), (0.9633, 0.9608),
+    (0.9162, 0.9921), (0.8620, 1.0000), (0.8150, 0.9717), (0.7859, 0.8858), (0.7560, 0.8007), (0.7371, 0.7428),
+    (0.7041, 0.6639), (0.6532, 0.6356), (0.6021, 0.6107), (0.5492, 0.6091), (0.4963, 0.6091), (0.4434, 0.6091),
+    (0.4081, 0.6092), (0.3565, 0.6293), (0.3054, 0.6553), (0.2672, 0.7214), (0.2393, 0.8090), (0.2099, 0.8945),
+    (0.1800, 0.9795), (0.1487, 1.0000), (0.0959, 0.9948), (0.0440, 0.9793), (0.0193, 0.8890), (0.0000, 0.7934),
+    (0.0089, 0.6927), (0.0251, 0.5948), (0.0369, 0.5302), (0.0540, 0.4330), (0.0731, 0.3380), (0.0969, 0.2461),
+    (0.1234, 0.1570), (0.1607, 0.0878),
 ]
 
-SS = 4  # supersample factor
+# ---- controls, normalised to the same box ----------------------------------
+DP_CX, DP_CY = 0.2858, 0.3168
+DP_SPAN, DP_ARM = 0.1595, 0.0535
+MINUS = (0.458, 0.253, 0.537, 0.282)          # x0, y0, x1, y1
+DOT_R = 0.0355
+DOTS = [(0.6475, 0.3165), (0.7095, 0.1965), (0.7095, 0.4370), (0.7705, 0.3165)]
+
+SS = 4   # supersample
 
 
-def _poly(draw, pts, scale, offset, fill):
-    draw.polygon([(offset[0] + x * scale, offset[1] + y * scale) for x, y in pts], fill=fill)
+def _to_px(pts, scale, ox, oy):
+    return [(ox + x * scale, oy + y * scale) for x, y in pts]
 
 
-def _disc(draw, cx, cy, r, scale, offset, fill, sides=4):
-    """A chamfered "circle": a square rotated 45 deg for nodes, per the icon rules."""
-    import math
-    pts = []
-    for i in range(sides):
-        a = math.pi / 2 * i + math.pi / 4
-        pts.append((cx + r * math.cos(a) * 1.22, cy + r * math.sin(a) * 1.22))
-    _poly(draw, pts, scale, offset, fill)
+def _ramp(w, h):
+    """Bilinear body colour: four corners, blended. Matches the film's lighting."""
+    small = Image.new("RGB", (2, 2))
+    small.putpixel((0, 0), TL); small.putpixel((1, 0), TR)
+    small.putpixel((0, 1), BL); small.putpixel((1, 1), BR)
+    return small.resize((w, h), Image.BICUBIC).convert("RGBA")
 
 
-def _gradient(size, top, bottom):
-    img = Image.new("RGB", (1, size), top)
-    px = img.load()
-    for y in range(size):
-        t = y / max(1, size - 1)
-        px[0, y] = (
-            int(top[0] + (bottom[0] - top[0]) * t),
-            int(top[1] + (bottom[1] - top[1]) * t),
-            int(top[2] + (bottom[2] - top[2]) * t),
-        )
-    return img.resize((size, size), Image.BILINEAR)
+def render_pad(mode, height, span=0.60, canvas=None):
+    """Draw the pad.
 
-
-def render_art(mode, size=432, span=0.635, offset=(0, 0)):
-    """Draw the pad on a transparent canvas.
-
-    mode: "dark" | "light" | "mono"
-    span: fraction of the canvas the pad's bounding box occupies — 0.635 keeps
-          it inside the 66% adaptive-icon safe zone, so no mask can crop it.
+    mode:   "dark" | "light" | "mono"
+    height: pad height in px; width follows ASPECT
+    span:   fraction of the square canvas the pad's width occupies
+    canvas: canvas size in px (square); derived from span when omitted
     """
-    S = size * SS
+    w_pad = max(1, int(round(height * ASPECT)))
+    if canvas is None:
+        canvas = max(w_pad, int(round(w_pad / span)))
+    S = canvas * SS
     art = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    scale = S * span / 1000.0
-    ox = (S - 1000 * scale) / 2 + offset[0] * SS
-    oy = (S - 1000 * scale) / 2 + offset[1] * SS
-    off = (ox, oy)
 
-    body_mask = Image.new("L", (S, S), 0)
-    _poly(ImageDraw.Draw(body_mask), BODY, scale, off, 255)
+    pw, ph = w_pad * SS, height * SS
+    ox, oy = (S - pw) / 2, (S - ph) / 2
+
+    def poly(pts):
+        return [(ox + x * pw, oy + y * ph) for x, y in pts]
+
+    body = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(body).polygon(poly(BODY), fill=255)
 
     if mode == "mono":
         white = Image.new("RGBA", (S, S), (255, 255, 255, 255))
-        art.paste(white, (0, 0), body_mask)
-        # knock the d-pad and buttons out so the silhouette still reads as a pad
+        art.paste(white, (0, 0), body)
         cut = Image.new("L", (S, S), 0)
-        cd = ImageDraw.Draw(cut)
-        _poly(cd, DPAD, scale, off, 255)
-        for bx, by in BTNS:
-            _disc(cd, bx, by, BTN_R, scale, off, 255)
+        _draw_controls(ImageDraw.Draw(cut), ox, oy, pw, ph)
         art.paste((0, 0, 0, 0), (0, 0), cut)
-        return art.resize((size, size), Image.LANCZOS)
+        return art.resize((canvas, canvas), Image.LANCZOS)
 
-    hi, lo = {"dark": (DARK_HI, DARK_LO), "light": (LIGHT_HI, LIGHT_LO)}[mode]
-
-    # 1. bloom, painted under the body so the silhouette stays crisp
+    # 1. bloom under the body — the film has a red bounce on black, and without
+    #    it the flat red reads as a sticker on a dark plate
     if mode == "dark":
-        glow = body_mask.filter(ImageFilter.GaussianBlur(11 * SS * span))
-        glow = glow.point(lambda v: int(v * 0.55))
-        art.paste(Image.new("RGBA", (S, S), EMBER + (255,)), (0, 0), glow)
+        halo = body.filter(ImageFilter.GaussianBlur(10 * SS))
+        halo = halo.point(lambda v: int(v * 0.40))
+        art.paste(Image.new("RGBA", (S, S), GLOW + (255,)), (0, 0), halo)
 
-    # 2. the body itself
-    face = _gradient(S, hi, lo).convert("RGBA")
-    art.paste(face, (0, 0), body_mask)
+    # 2. the body
+    art.paste(_ramp(S, S), (0, 0), body)
 
-    d = ImageDraw.Draw(art)
-    rim_col = (EMBER if mode == "dark" else RIM) + (255,)
-
-    # shoulder slabs: darker red on the body
-    slab_mask = Image.new("L", (S, S), 0)
-    sd = ImageDraw.Draw(slab_mask)
-    for slab in SHOULDERS:
-        _poly(sd, slab, scale, off, 255)
-    slab_mask = Image.composite(slab_mask, Image.new("L", (S, S), 0), body_mask)
-    art.paste(Image.new("RGBA", (S, S), SHOULDER + (255,)), (0, 0), slab_mask)
-
-
-    # 3. shoulder slabs in darker red, so they sit on the body rather than being
-    #    punched out of it
-    ctl = Image.new("L", (S, S), 0)
-    cd = ImageDraw.Draw(ctl)
-    _poly(cd, DPAD, scale, off, 255)
-    for bx, by in BTNS:
-        _disc(cd, bx, by, BTN_R, scale, off, 255)
-
-    if mode == "dark":
-        art.paste(Image.new("RGBA", (S, S), EMBER + (90,)), (0, 0), Image.composite(
-            Image.new("L", (S, S), 0), ctl, ctl.point(lambda v: 255 - v)
-        ).filter(ImageFilter.GaussianBlur(2.2 * SS)))
-    art.paste(Image.new("RGBA", (S, S), INK + (255,)), (0, 0), ctl)
-
-    # 4. edge: a bright lip on the lower half in dark mode, a hard ink line in light
-    ring = [(off[0] + x * scale, off[1] + y * scale) for x, y in BODY + [BODY[0]]]
-    lw = max(2, int(10 * SS * span / 0.635))
+    # 3. rim: only the lower silhouette catches light, and it is clipped inside
     rim = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     rd = ImageDraw.Draw(rim)
-    for i in range(len(ring) - 1):
-        (x1, y1), (x2, y2) = ring[i], ring[i + 1]
-        if (y1 + y2) / 2 < S * 0.52:
-            continue  # top edges stay unlit: the light comes from above
-        rd.line([(x1, y1), (x2, y2)], fill=rim_col, width=lw)
-    # clip to the silhouette so the lip is an inner edge, never an outer halo
-    art.alpha_composite(Image.composite(rim, Image.new("RGBA", (S, S), (0, 0, 0, 0)), body_mask))
-    if mode == "light":
-        edge = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-        ImageDraw.Draw(edge).line(ring, fill=INK + (86,), width=max(2, int(4 * SS)))
-        art.alpha_composite(Image.composite(edge, Image.new("RGBA", (S, S), (0, 0, 0, 0)), body_mask))
+    ring = poly(BODY)
+    lw = max(2, int(1.7 * SS))
+    for i in range(len(ring)):
+        (x1, y1), (x2, y2) = ring[i], ring[(i + 1) % len(ring)]
+        if (y1 + y2) / 2 < oy + ph * 0.46:
+            continue
+        rd.line([(x1, y1), (x2, y2)], fill=RIM + (175 if mode == "dark" else 120,), width=lw)
+    art.alpha_composite(Image.composite(rim, Image.new("RGBA", (S, S), (0, 0, 0, 0)), body))
 
-    return art.resize((size, size), Image.LANCZOS)
+    # 4. controls
+    ctl = Image.new("L", (S, S), 0)
+    _draw_controls(ImageDraw.Draw(ctl), ox, oy, pw, ph)
+    art.paste(Image.new("RGBA", (S, S), INK + (255,)), (0, 0), ctl)
+
+    return art.resize((canvas, canvas), Image.LANCZOS)
 
 
-def plate(size, bg, art, radius=0.22, round_full=False):
-    """Compose a legacy (pre-adaptive) icon: plate + art."""
-    S = size * SS
+def _draw_controls(d, ox, oy, pw, ph):
+    """d-pad, minus key and the four round buttons, in one mask."""
+    def X(v): return ox + v * pw
+    def Y(v): return oy + v * ph
+
+    cx, cy = X(DP_CX), Y(DP_CY)
+    arm_x, arm_y = DP_ARM * pw, DP_ARM * ph
+    half_x = DP_SPAN / 2 * pw
+    half_y = 0.335 / 2 * ph            # the vertical bar is taller than it is wide
+    d.rectangle([cx - half_x, cy - arm_y, cx + half_x, cy + arm_y], fill=255)
+    d.rectangle([cx - arm_x, cy - half_y, cx + arm_x, cy + half_y], fill=255)
+
+    x0, y0, x1, y1 = MINUS
+    d.rectangle([X(x0), Y(y0), X(x1), Y(y1)], fill=255)
+
+    for x, y in DOTS:
+        r = DOT_R * pw
+        d.ellipse([X(x) - r, Y(y) - r, X(x) + r, Y(y) + r], fill=255)
+
+
+def render_mark(height=420):
+    """The pad alone on transparency, cropped to its own bounding box.
+
+    This is the in-app mark (lobby emblem, launch sheet, bubble, splash fallback).
+    No plate, no padding: it is the same art the launcher shows.
+    """
+    w = int(round(height * ASPECT))
+    S = w * SS
+    art = Image.new("RGBA", (S, S // 1), (0, 0, 0, 0))  # placeholder, replaced below
+    art = Image.new("RGBA", (S, int(round(height * SS))), (0, 0, 0, 0))
+    body = Image.new("L", (S, art.size[1]), 0)
+    poly = [(x * S, y * art.size[1]) for x, y in BODY]
+    ImageDraw.Draw(body).polygon(poly, fill=255)
+    art.paste(_ramp(S, art.size[1]), (0, 0), body)
+    rim = Image.new("RGBA", art.size, (0, 0, 0, 0))
+    rd = ImageDraw.Draw(rim)
+    for i in range(len(poly)):
+        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % len(poly)]
+        if (y1 + y2) / 2 < art.size[1] * 0.46:
+            continue
+        rd.line([(x1, y1), (x2, y2)], fill=RIM + (200,), width=max(2, int(3.2 * SS)))
+    art.alpha_composite(Image.composite(rim, Image.new("RGBA", art.size, (0, 0, 0, 0)), body))
+    ctl = Image.new("L", art.size, 0)
+    _draw_controls(ImageDraw.Draw(ctl), 0.0, 0.0, float(S), float(art.size[1]))
+    art.paste(Image.new("RGBA", art.size, INK + (255,)), (0, 0), ctl)
+    return art.resize((w, height), Image.LANCZOS)
+
+
+def render_mark_mono(height=420):
+    w = int(round(height * ASPECT))
+    S = w * SS
+    art = Image.new("RGBA", (S, int(round(height * SS))), (0, 0, 0, 0))
+    poly = [(x * S, y * art.size[1]) for x, y in BODY]
+    body = Image.new("L", art.size, 0)
+    ImageDraw.Draw(body).polygon(poly, fill=255)
+    art.paste(Image.new("RGBA", art.size, (255, 255, 255, 255)), (0, 0), body)
+    cut = Image.new("L", art.size, 0)
+    _draw_controls(ImageDraw.Draw(cut), 0.0, 0.0, float(S), float(art.size[1]))
+    art.paste((0, 0, 0, 0), (0, 0), cut)
+    return art.resize((w, height), Image.LANCZOS)
+
+
+def render_emblem(height=360):
+    """The pad on a soft circular bed — the in-app emblem.
+
+    Used by the lobby hero card, the launch sheet, the floating bubble and the
+    intro fallback. Same pad as the launcher; only the bed is added, because a
+    wide thin mark has nothing to sit on when the panel behind it is dark.
+    """
+    S = height
+    pad_h = max(1, int(round(height * 0.52)))
+    pad_w = max(1, int(round(pad_h * ASPECT)))
+    pad = render_pad("dark", height=pad_h, span=0.5, canvas=pad_w + int(pad_w * 0.24))
+    bed = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bed)
+    bd.ellipse([6, 6, S - 7, S - 7], fill=(0x14, 0x10, 0x16, 255))
+    bd.ellipse([6, 6, S - 7, S - 7], outline=(0x3A, 0x1A, 0x1C, 255), width=3)
+    glow = bed.split()[3].filter(ImageFilter.GaussianBlur(10))
+    out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    out.paste(Image.new("RGBA", (S, S), (0x7A, 0x12, 0x14, 255)), (0, 0), glow)
+    out.alpha_composite(bed)
+    out.alpha_composite(pad, ((S - pad.size[0]) // 2, (S - pad.size[1]) // 2))
+    return out
+
+
+def plate(w, h, bg, art, round_full=False):
+    """Compose a legacy (pre-adaptive) icon: plate + pad, centred."""
+    S = max(w, h) * SS
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if round_full:
         d.ellipse([0, 0, S - 1, S - 1], fill=bg + (255,))
     else:
-        r = int(S * radius)
-        d.rounded_rectangle([0, 0, S - 1, S - 1], radius=r, fill=bg + (255,))
-    art_big = art.resize((S, S), Image.LANCZOS)
-    img.alpha_composite(art_big)
-    return img.resize((size, size), Image.LANCZOS)
+        d.rounded_rectangle([0, 0, S - 1, S - 1], radius=int(S * 0.22), fill=bg + (255,))
+    scaled = art.resize((S, S), Image.LANCZOS)
+    img.alpha_composite(scaled)
+    return img.resize((w, h), Image.LANCZOS)
 
 
 ADAPTIVE = """<?xml version="1.0" encoding="utf-8"?>
@@ -230,29 +260,26 @@ ADAPTIVE = """<?xml version="1.0" encoding="utf-8"?>
 
 def write(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    mode = "wb" if isinstance(data, bytes) else "w"
-    with open(path, mode) as fh:
+    with open(path, "wb" if isinstance(data, bytes) else "w") as fh:
         fh.write(data)
 
 
 def main():
-    dark = render_art("dark")
-    light = render_art("light")
-    mono = render_art("mono")
+    # 432 is the adaptive-icon foreground size at xxxhdpi (108dp @ 4x)
+    dark = render_pad("dark", height=232, span=0.60, canvas=432)
+    light = render_pad("light", height=232, span=0.60, canvas=432)
+    mono = render_pad("mono", height=232, span=0.60, canvas=432)
 
-    # foregrounds: qualifier-resolved pair for "auto", fixed copies for the pins
-    write(f"{RES}/drawable-night-nodpi/ic_pad_fg.png", b"")
     dark.save(f"{RES}/drawable-night-nodpi/ic_pad_fg.png")
     light.save(f"{RES}/drawable-nodpi/ic_pad_fg.png")
     light.save(f"{RES}/drawable-nodpi/ic_pad_fg_light.png")
     dark.save(f"{RES}/drawable-nodpi/ic_pad_fg_dark.png")
     mono.save(f"{RES}/drawable-nodpi/ic_pad_fg_mono.png")
 
-    # adaptive descriptors
     anydpi = f"{RES}/mipmap-anydpi-v26"
     for name, bg, fg, why in [
         ("ic_launcher_pad", "@color/ic_pad_bg", "@drawable/ic_pad_fg",
-         "Background and art both have -night variants, so the plate follows the\n     system light/dark setting."),
+         "Plate and art both have -night variants, so the icon follows the\n     system light/dark setting."),
         ("ic_launcher_pad_dark", "@color/ic_pad_bg_dark", "@drawable/ic_pad_fg_dark",
          "Pinned to the dark plate whatever the system says."),
         ("ic_launcher_pad_light", "@color/ic_pad_bg_light", "@drawable/ic_pad_fg_light",
@@ -264,29 +291,45 @@ def main():
         write(f"{anydpi}/{name}.xml", xml)
         write(f"{anydpi}/{name}_round.xml", xml)
 
-    # legacy bitmaps, one set per look
     looks = {
         "ic_launcher_pad":       (PLATE_D, dark),
         "ic_launcher_pad_round": (PLATE_D, dark),
         "ic_launcher_pad_dark":  (PLATE_D, dark),
+        "ic_launcher_pad_dark_round": (PLATE_D, dark),
         "ic_launcher_pad_light": (PLATE_L, light),
+        "ic_launcher_pad_light_round": (PLATE_L, light),
         "ic_launcher_pad_mono":  (PLATE_D, mono),
+        "ic_launcher_pad_mono_round": (PLATE_D, mono),
     }
     for dens, px in [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)]:
         for name, (bg, art) in looks.items():
-            plate(px, bg, art, round_full=name.endswith("_round")).save(f"{RES}/mipmap-{dens}/{name}.png")
+            plate(px, px, bg, art, round_full=name.endswith("_round")).save(f"{RES}/mipmap-{dens}/{name}.png")
 
-    # Settings previews — the composed icon, which is what the user sees
-    prev = {
+    # the package-level fallback icons, same art
+    for dens, px in [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)]:
+        plate(px, px, PLATE_D, dark).save(f"{RES}/mipmap-{dens}/ic_launcher.png")
+        plate(px, px, PLATE_D, dark, round_full=True).save(f"{RES}/mipmap-{dens}/ic_launcher_round.png")
+
+    # in-app emblem: the pad on a soft circular bed. A 1.94:1 mark disappears on a
+    # dark panel without one, and the lobby card shows it at 112dp.
+    render_emblem(360).save(f"{RES}/drawable-nodpi/ic_float_emblem.png")
+
+    # settings previews — composed, because that is what the user will see
+    for name, (bg, art) in {
         "ic_pick_auto":  (PLATE_D, dark),
         "ic_pick_dark":  (PLATE_D, dark),
         "ic_pick_light": (PLATE_L, light),
         "ic_pick_mono":  (PLATE_D, mono),
-    }
-    for name, (bg, art) in prev.items():
-        plate(192, bg, art).save(f"{RES}/drawable-nodpi/{name}.png")
+    }.items():
+        plate(192, 192, bg, art).save(f"{RES}/drawable-nodpi/{name}.png")
 
-    print("pad icon written:", ", ".join(sorted(prev)))
+    # status bar: white silhouette, the system tints it
+    for dens, px in [("mdpi", 24), ("hdpi", 36), ("xhdpi", 48), ("xxhdpi", 72), ("xxxhdpi", 96)]:
+        d = f"{RES}/drawable-{dens}"
+        os.makedirs(d, exist_ok=True)
+        render_pad("mono", height=int(px / ASPECT) or 1, span=0.96, canvas=px).save(f"{d}/ic_stat_gh.png")
+
+    print("traced pad icon written")
 
 
 if __name__ == "__main__":

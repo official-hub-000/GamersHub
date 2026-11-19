@@ -1008,17 +1008,17 @@ internal fun IntroAnimation(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Decode failed: draw the same red pad the launcher shows, so the
-            // first pixel of the app and the home-screen icon are one object.
+            // Decode failed: show the pad the launcher shows, so the first pixel
+            // of the app and the home-screen icon are one object.
             Box(
                 Modifier.fillMaxSize().background(Color(0xFF05060A)),
                 contentAlignment = Alignment.Center
             ) {
                 androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_pad_mark),
+                    painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_float_emblem),
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth(0.62f)
+                    modifier = Modifier.fillMaxWidth(0.54f)
                 )
             }
         }
