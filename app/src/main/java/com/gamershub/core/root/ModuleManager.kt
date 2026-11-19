@@ -160,6 +160,19 @@ object ModuleManager {
         return RootTools.Result(ok, if (ok) "$id queued for removal — reboot to finish" else "could not remove $id")
     }
 
+    /** True when the module is flagged disabled on disk, whatever the manager reports. */
+    fun isDisabled(id: String): Boolean =
+        RootShell.run("test -f $MODULES/$id/disable && echo yes", 3_000)?.trim() == "yes"
+
+    /** Soft-reboots only the userspace, which is what KernelSU's late-load uses. */
+    fun softRebootUserspace(): Boolean {
+        if (!RootShell.ready()) return false
+        for (cmd in listOf("setprop ctl.restart zygote", "stop; start")) {
+            if (RootShell.ok(cmd)) return true
+        }
+        return false
+    }
+
     /** Undoes a pending removal. */
     fun cancelRemove(id: String): RootTools.Result {
         if (!RootShell.ready()) return RootTools.Result(false, "needs root")

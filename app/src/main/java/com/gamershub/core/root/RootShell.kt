@@ -51,6 +51,65 @@ object RootShell {
     var binPath: String? = null
         private set
 
+    /**
+     * True when this root was granted for the current session only.
+     *
+     * Set when [provisionTemporary] is what got us here. Cleared by [releaseAll], so
+     * the next acquire has to earn it again. The privilege ladder reads this to tell
+     * "temporary" from "persistent" honestly instead of guessing from the su path.
+     */
+    @Volatile
+    var temporarySession: Boolean = false
+        private set
+
+    /** Keeps the multiplexed shell open for the engine session. */
+    fun hold(context: android.content.Context) {
+        if (session?.alive != true) startSession(context)
+        record(if (session?.alive == true) "session held" else "session not available")
+    }
+
+    /**
+     * Adopts a root grant that Shizuku already holds.
+     *
+     * When `su -c id` works through the Shizuku shell but not from the app, the grant
+     * lives in the shell's process. There is no way to move that into our own uid, so
+     * we do not pretend to: the shell keeps it, [run] keeps routing through it, and the
+     * state becomes READY with an honest method label.
+     */
+    fun adoptShizukuRoot() {
+        if (ready()) return
+        state = State.READY
+        method = "su via Shizuku"
+        lastError = ""
+        record("adopted the Shizuku-shell root grant")
+    }
+
+    /**
+     * Installs the temporary provider and returns true only if it *verified* uid 0.
+     *
+     * The provider is a shim over the device's su — it is not a root exploit and does
+     * not claim to be one. It exists so the ladder has one stable privileged path, and
+     * [removeProvider] deletes it whenever the engine stops.
+     */
+    fun provisionTemporary(context: android.content.Context): Boolean {
+        if (!installProvider(context)) {
+            record("temp provider could not be written")
+            return false
+        }
+        val out = quick("${providerPath(context)} id", timeoutMs = 20_000) ?: return false
+        if (!out.contains("uid=0")) {
+            record("temp provider ran but not as root")
+            return false
+        }
+        state = State.READY
+        method = "temporary provider"
+        temporarySession = true
+        lastError = ""
+        startSession(context)
+        record("temp provider -> uid=0 (session only)")
+        return true
+    }
+
     @Volatile
     private var session: Session? = null
 
@@ -212,6 +271,7 @@ object RootShell {
 
     /** Drops the persistent shell and marks root unusable; call on engine stop. */
     fun releaseAll() {
+        temporarySession = false
         runCatching { session?.close() }
         session = null
         state = State.SHELL_ONLY

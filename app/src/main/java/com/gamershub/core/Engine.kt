@@ -60,6 +60,11 @@ object Engine {
     var lastRestore: Restore.Report? = null
         private set
 
+    /** How the last start reached privilege, for the Root tab and the panel. */
+    @Volatile
+    var lastLadder: com.gamershub.core.root.PrivilegeLadder.Result? = null
+        private set
+
     fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Reads the persisted state without starting anything. */
@@ -100,9 +105,16 @@ object Engine {
         // Root is an option: attempted only when the caller asked for it. A
         // successful grant is remembered so later starts do not re-prompt, and a
         // failed one is remembered too so we stop nagging a user who has no root.
+        // Climb the privilege ladder: su from the device, then su via Shizuku, then the
+        // bundled temporary provider. Whichever rung answers is reported, so a
+        // KernelSU device and a DFRoot-style per-boot device both end up with working
+        // root and an honest label.
         if (wantRoot) {
-            val got = runCatching { RootShell.acquire(context) }.getOrDefault(false)
-            if (got) setRootOptIn(context, true)
+            val ladder = runCatching {
+                com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+            }.getOrNull()
+            if (ladder?.reachedRoot == true) setRootOptIn(context, true)
+            lastLadder = ladder
         }
         runCatching { Shell.ensure(context) }
         return statusLine(context)
@@ -155,18 +167,16 @@ object Engine {
             done += "restore error"
         }
 
-        // 5. Root session and the temporary provider.
+        // 5. Down the ladder: root session, temporary provider, Shizuku binder. One
+        //    call, because three separate teardowns is how one of them gets forgotten.
         runCatching {
-            RootShell.releaseAll()
-            RootShell.removeProvider(context)
-            done += "root released"
+            done += com.gamershub.core.root.PrivilegeLadder.descend(context)
+            lastLadder = null
         }
 
-        // 6. Shizuku binder and its user service.
+        // 6. Shizuku's user service (the binder itself is dropped in step 5).
         runCatching {
-            Shell.disconnect()
             Shell.exec("pkill -f GamersHubShellService 2>/dev/null; true")
-            done += "shizuku released"
         }
 
         // 7. Local app state that represents "the engine was running".

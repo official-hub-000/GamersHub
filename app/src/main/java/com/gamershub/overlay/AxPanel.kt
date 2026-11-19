@@ -923,7 +923,7 @@ private fun GfxPage(api: AxApi) {
         ) {
             api.work {
                 val okLocal = withContext(Dispatchers.IO) {
-                    com.gamershub.core.root.RootShell.acquire(context)
+                    com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true).reachedRoot
                 }
                 api.say(
                     if (okLocal) "Root ready (${com.gamershub.core.root.RootShell.method})"

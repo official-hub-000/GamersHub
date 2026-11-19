@@ -71,6 +71,8 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
     var busy by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var showDiag by remember { mutableStateOf(false) }
+    // Which rungs of the privilege ladder answered on the last attempt, verbatim.
+    var ladderStep by remember { mutableStateOf("") }
 
     // Live snapshot: root state and module list. Refreshed on a timer so a change
     // made in the Magisk app shows up here without a restart.
@@ -106,6 +108,8 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     suBackend = com.gamershub.core.root.SuManager.backendName(),
                     canManageSu = com.gamershub.core.root.SuManager.canManage(),
                     temp = runCatching { com.gamershub.core.root.TempRoot.inspect(context) }.getOrNull(),
+                    rung = runCatching { com.gamershub.core.root.PrivilegeLadder.standing() }
+                        .getOrDefault(com.gamershub.core.root.PrivilegeLadder.Rung.NONE),
                 )
             }
             delay(2500)
@@ -191,7 +195,16 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     Pill("REQUEST ROOT", filled = true) {
                         scope.launch {
                             busy = "requesting"
-                            val ok = withContext(Dispatchers.IO) { RootShell.acquire(context) }
+                            // Climb the whole ladder, and keep the step-by-step
+                            // result: "failed" with no reason is what makes a root
+                            // panel useless.
+                            val ladder = withContext(Dispatchers.IO) {
+                                com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+                            }
+                            ladderStep = ladder.steps.joinToString(" · ") { s ->
+                                "${if (s.ok) "✓" else "✗"} ${s.name}"
+                            }
+                            val ok = ladder.reachedRoot
                             busy = ""
                             message = if (ok) "Root granted (${RootShell.method})" else RootShell.lastError
                             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -277,6 +290,42 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
         // ---------------------------------------------------------- flash
         // ---------------------------------------------------------- store
+        // ---------------------------------------------------------- two layers
+        SectionHead("PRIVILEGE")
+        LadderCard(
+            rung = snap.rung,
+            rootReady = snap.ready,
+            manager = snap.manager,
+            managerVersion = snap.managerVersion,
+            suBackend = snap.suBackend,
+            canManageSu = snap.canManageSu,
+            accent = accent,
+            ladderStep = ladderStep,
+            busy = busy,
+            onClimb = {
+                scope.launch {
+                    busy = "climbing"
+                    val res = withContext(Dispatchers.IO) {
+                        com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+                    }
+                    ladderStep = res.steps.joinToString(" · ") { s2 -> "${if (s2.ok) "✓" else "✗"} ${s2.name}" }
+                    message = if (res.reachedRoot) "Root held · ${RootShell.method}" else "no rung answered"
+                    busy = ""
+                }
+            },
+            onDescend = {
+                scope.launch {
+                    busy = "dropping"
+                    message = withContext(Dispatchers.IO) {
+                        com.gamershub.core.root.PrivilegeLadder.descend(context)
+                    }
+                    ladderStep = ""
+                    busy = ""
+                }
+            }
+        )
+        Spacer(Modifier.height(16.dp))
+
         // ---------------------------------------------------------- temporary root
         SectionHead("TEMPORARY ROOT")
         TempRootSection(
@@ -471,6 +520,8 @@ private data class Snapshot(
     val suBackend: String = "",
     val canManageSu: Boolean = false,
     val temp: com.gamershub.core.root.TempRoot.Facts? = null,
+    val rung: com.gamershub.core.root.PrivilegeLadder.Rung =
+        com.gamershub.core.root.PrivilegeLadder.Rung.NONE,
 )
 
 @Composable
@@ -583,6 +634,146 @@ private fun Card(
  * shipped: it needs a per-kernel `.ko` and a native build this app does not have, and
  * a wrong offset costs a phone rather than a build.
  */
+/**
+ * The two layers, side by side, because they are different things and the whole
+ * confusion about "temporary root" is people treating them as one.
+ *
+ *   LEFT  — temporary root: uid 0 for this session, given back when the engine stops.
+ *   RIGHT — the manager: policy for every other app, and module zips.
+ *
+ * Whichever is actually live is lit; the other is dimmed but still readable, so the
+ * screen says what *could* be done as well as what is.
+ */
+@Composable
+private fun LadderCard(
+    rung: com.gamershub.core.root.PrivilegeLadder.Rung,
+    rootReady: Boolean,
+    manager: String,
+    managerVersion: String,
+    suBackend: String,
+    canManageSu: Boolean,
+    accent: Color,
+    ladderStep: String,
+    busy: String,
+    onClimb: () -> Unit,
+    onDescend: () -> Unit
+) {
+    val tempLive = rung == com.gamershub.core.root.PrivilegeLadder.Rung.TEMP_ROOT
+    val persistent = rung == com.gamershub.core.root.PrivilegeLadder.Rung.PERSISTENT_ROOT
+    val shellOnly = rung == com.gamershub.core.root.PrivilegeLadder.Rung.SHIZUKU
+
+    Card(borderColor = if (rootReady) accent.copy(alpha = 0.35f) else RomKit.Stroke) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when {
+                        persistent -> "Root held"
+                        tempLive -> "Temporary root held"
+                        shellOnly -> "Shizuku only"
+                        else -> "No root"
+                    },
+                    color = GC.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    rung.detail,
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(
+                        when {
+                            persistent -> accent
+                            tempLive -> Color(0xFFE0A33A)
+                            shellOnly -> Color(0xFF59A0E0)
+                            else -> GC.TextDim.copy(alpha = 0.5f)
+                        }
+                    )
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            LayerTile(
+                title = "TEMPORARY",
+                body = "uid 0 for this session",
+                detail = if (tempLive) "live — drops with the engine"
+                         else "gained on start, released on stop",
+                live = tempLive,
+                accent = Color(0xFFE0A33A),
+                modifier = Modifier.weight(1f)
+            )
+            LayerTile(
+                title = "MANAGER",
+                body = if (manager.isBlank() || manager == "—") "no manager detected" else manager,
+                detail = when {
+                    !canManageSu -> "policy store not readable"
+                    else -> "superuser + module zips"
+                },
+                live = persistent,
+                accent = accent,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (managerVersion.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text("$manager $managerVersion · $suBackend", color = GC.TextDim, fontSize = 11.sp, maxLines = 1)
+        }
+        if (ladderStep.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text("last attempt", color = GC.TextDim, fontSize = 10.sp, letterSpacing = 0.6.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(ladderStep, color = GC.TextSoft, fontSize = 12.sp)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            if (!rootReady) {
+                BigButton(
+                    text = if (busy.isNotBlank()) busy.uppercase() else "CLIMB TO ROOT",
+                    onClick = onClimb,
+                    primary = true,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                BigButton(
+                    text = "DROP ROOT",
+                    onClick = onDescend,
+                    primary = false,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LayerTile(
+    title: String,
+    body: String,
+    detail: String,
+    live: Boolean,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (live) accent.copy(alpha = 0.10f) else GC.SurfaceHi.copy(alpha = 0.6f))
+            .border(1.dp, if (live) accent.copy(alpha = 0.55f) else RomKit.Stroke, RoundedCornerShape(12.dp))
+            .padding(11.dp)
+    ) {
+        Text(title, color = if (live) accent else GC.TextDim, fontSize = 9.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(body, color = GC.Text, fontSize = 13.sp, maxLines = 1)
+        Spacer(Modifier.height(2.dp))
+        Text(detail, color = GC.TextDim, fontSize = 10.sp, maxLines = 2)
+    }
+}
+
 @Composable
 private fun TempRootSection(
     facts: com.gamershub.core.root.TempRoot.Facts?,
