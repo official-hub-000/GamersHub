@@ -110,8 +110,14 @@ jobs:
           say "--- badging (first 8 lines) ---"
           head -8 badging.txt | tee -a "$REPORT"
 
+          # Read the expected version out of the build file so a version bump
+          # cannot silently desync from this assertion.
+          EXP_CODE=$(sed -n 's/^ *versionCode = //p' app/build.gradle.kts | head -1)
+          EXP_NAME=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          say "expected: versionCode=$EXP_CODE versionName=$EXP_NAME"
           grep -q "name='com.gamershub'" badging.txt || fail "package name is not com.gamershub"
-          grep -q "versionCode='85'" badging.txt || fail "versionCode is not 85"
+          grep -q "versionCode='$EXP_CODE'" badging.txt || fail "versionCode is not $EXP_CODE"
+          grep -q "versionName='$EXP_NAME'" badging.txt || fail "versionName is not $EXP_NAME"
           if grep -qi "application-debuggable" badging.txt; then
             fail "APK is debuggable - refusing to publish a debug build"
           fi
