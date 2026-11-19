@@ -68,9 +68,13 @@ BODY = [
 
 # ---- controls, normalised to the same box ----------------------------------
 DP_CX, DP_CY = 0.2858, 0.3168
-DP_SPAN, DP_ARM = 0.1595, 0.0535
+# Equal-pixel terms: measured in the still, both axes are the same number of
+# pixels, so the x and y fractions differ by exactly the pad's aspect ratio.
+# Getting this wrong makes the arms look fat, because h is half of w.
+DP_SPAN_X, DP_SPAN_Y = 0.1730, 0.3350
+DP_ARM_X, DP_ARM_Y = 0.0165, 0.0325           # half-arm
 MINUS = (0.458, 0.253, 0.537, 0.282)          # x0, y0, x1, y1
-DOT_R = 0.0355
+DOT_R_X, DOT_R_Y = 0.0225, 0.0440
 DOTS = [(0.6475, 0.3165), (0.7095, 0.1965), (0.7095, 0.4370), (0.7705, 0.3165)]
 
 SS = 4   # supersample
@@ -150,23 +154,30 @@ def render_pad(mode, height, span=0.60, canvas=None):
 
 
 def _draw_controls(d, ox, oy, pw, ph):
-    """d-pad, minus key and the four round buttons, in one mask."""
+    """d-pad, minus key and the four round buttons, in one mask.
+
+    Every dimension is given per-axis. A "square" control is equal in pixels,
+    which means different fractions of width and height — the pad is 1.94:1, so
+    using one fraction for both axes makes the arms twice as thick as they are.
+    """
     def X(v): return ox + v * pw
     def Y(v): return oy + v * ph
 
     cx, cy = X(DP_CX), Y(DP_CY)
-    arm_x, arm_y = DP_ARM * pw, DP_ARM * ph
-    half_x = DP_SPAN / 2 * pw
-    half_y = 0.335 / 2 * ph            # the vertical bar is taller than it is wide
+    half_x, half_y = DP_SPAN_X / 2 * pw, DP_SPAN_Y / 2 * ph
+    arm_x, arm_y = DP_ARM_X * pw, DP_ARM_Y * ph
+
+    # horizontal arm of the plus
     d.rectangle([cx - half_x, cy - arm_y, cx + half_x, cy + arm_y], fill=255)
+    # vertical arm — same pixel thickness as the horizontal one
     d.rectangle([cx - arm_x, cy - half_y, cx + arm_x, cy + half_y], fill=255)
 
     x0, y0, x1, y1 = MINUS
     d.rectangle([X(x0), Y(y0), X(x1), Y(y1)], fill=255)
 
     for x, y in DOTS:
-        r = DOT_R * pw
-        d.ellipse([X(x) - r, Y(y) - r, X(x) + r, Y(y) + r], fill=255)
+        rx, ry = DOT_R_X * pw, DOT_R_Y * ph
+        d.ellipse([X(x) - rx, Y(y) - ry, X(x) + rx, Y(y) + ry], fill=255)
 
 
 def render_mark(height=420):
