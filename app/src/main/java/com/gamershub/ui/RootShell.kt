@@ -893,9 +893,20 @@ private fun hasUsage(context: Context): Boolean = try {
  * cannot be decoded the animated gamepad art takes over, silently.
  */
 @Composable
-internal fun IntroAnimation(onDone: () -> Unit) {
+internal fun IntroAnimation(
+    onDone: () -> Unit,
+    landscape: Boolean = false,
+) {
     var done by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+
+    // The two intros are separate masters with their own framing, so the clip,
+    // its real pixel size (used for the centre-crop) and its length are all
+    // chosen together instead of being hard-coded to one video.
+    val clip = if (landscape) com.gamershub.R.raw.game_space_intro
+               else com.gamershub.R.raw.intro_portrait
+    val videoW = if (landscape) 1920f else 1080f
+    val videoH = if (landscape) 1080f else 1920f
 
     fun finish() {
         if (!done) {
@@ -906,8 +917,9 @@ internal fun IntroAnimation(onDone: () -> Unit) {
 
     LaunchedEffect(Unit) {
         // Fallback only: the clip itself ends the intro through setOnCompletionListener,
-        // so a longer intro is never cut in half.
-        kotlinx.coroutines.delay(9000)
+        // so a longer intro is never cut in half. intro_portrait runs 4.2s; keep a
+        // generous margin for slow decode on first launch.
+        kotlinx.coroutines.delay(12_000)
         finish()
     }
 
@@ -928,9 +940,7 @@ internal fun IntroAnimation(onDone: () -> Unit) {
                                 height: Int
                             ) {
                                 try {
-                                    val afd = ctx.resources.openRawResourceFd(
-                                        com.gamershub.R.raw.intro_1080_portrait_comp
-                                    )
+                                    val afd = ctx.resources.openRawResourceFd(clip)
                                     val player = android.media.MediaPlayer()
                                     player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                                     afd.close()
@@ -946,10 +956,9 @@ internal fun IntroAnimation(onDone: () -> Unit) {
                                     }
                                     player.prepareAsync()
                                     tag = player
-                                    // Centre-crop the 9:16 clip so it fills the screen like the original.
+                                    // Centre-crop the clip (9:16 portrait or 16:9 landscape)
+                                    // so it fills the surface without letterboxing.
                                     if (width > 0 && height > 0) {
-                                        val videoW = 1080f
-                                        val videoH = 1920f
                                         val cover = maxOf(width / videoW, height / videoH)
                                         val sx = (cover * videoW) / width
                                         val sy = (cover * videoH) / height

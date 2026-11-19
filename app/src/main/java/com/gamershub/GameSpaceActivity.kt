@@ -163,7 +163,11 @@ class GameSpaceActivity : ComponentActivity() {
                         }
                     )
                     if (showIntro) {
-                        com.gamershub.ui.IntroAnimation(onDone = { showIntro = false })
+                        // Game Space / booster intro — the landscape master.
+                        com.gamershub.ui.IntroAnimation(
+                            onDone = { showIntro = false },
+                            landscape = true,
+                        )
                     }
                 }
             }
