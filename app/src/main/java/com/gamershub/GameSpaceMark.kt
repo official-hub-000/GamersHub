@@ -83,10 +83,14 @@ object Geo {
     val Aiw = 0.500f to 0.665f
     val Riw = 0.795f to 0.255f
 
-    /** Nested inner chevron. */
-    val IL = 0.255f to 0.560f
-    val IA = 0.500f to 0.790f
-    val IR = 0.745f to 0.560f
+    /**
+     * Nested inner chevron. It sits inside the wings, not outside them — an
+     * earlier value started at x=0.255 on y=0.560, which is left of the wing, so
+     * it read as two stray lines poking out of the emblem.
+     */
+    val IL = 0.365f to 0.555f
+    val IA = 0.500f to 0.815f
+    val IR = 0.635f to 0.555f
 
     /** Gunmetal core notch at the apex. */
     val core = listOf(
