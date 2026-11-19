@@ -3,6 +3,7 @@ package com.gamershub.core
 import android.content.Context
 import android.provider.Settings
 import com.gamershub.GamersHubApp
+import com.gamershub.core.root.ModuleManager
 import com.gamershub.core.root.RootShell
 
 /**

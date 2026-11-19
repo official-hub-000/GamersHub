@@ -69,19 +69,6 @@ object Channel {
         Kind.ROOT to Capability.entries.toSet(),
     )
 
-    /** Human label for the capability, used in the UI when explaining a block. */
-    val Capability.label: String
-        get() = when (this) {
-            Capability.SHELL -> "shell commands"
-            Capability.PROPS -> "system properties"
-            Capability.ADB_DATA -> "/data/adb"
-            Capability.MOUNT_MODULE -> "module mounting"
-            Capability.PACKAGE_CONTROL -> "package control"
-            Capability.KERNEL_TUNABLES -> "kernel tunables"
-            Capability.SETTINGS_WRITE -> "settings writes"
-            Capability.APP_DATA -> "app private data"
-        }
-
     /** Current channel, evaluated against live state rather than a cached flag. */
     fun kind(): Kind = when {
         RootShell.ready() -> Kind.ROOT
@@ -136,3 +123,19 @@ object Channel {
     fun execIf(cap: Capability, context: Context, command: String, timeoutMs: Long = 8_000): String? =
         if (can(cap)) exec(context, command, timeoutMs) else null
 }
+
+/**
+ * Human label for a capability, used when explaining why something is blocked.
+ * Top-level so both the engine and the UI can name the same thing identically.
+ */
+val Channel.Capability.label: String
+    get() = when (this) {
+        Channel.Capability.SHELL -> "shell commands"
+        Channel.Capability.PROPS -> "system properties"
+        Channel.Capability.ADB_DATA -> "/data/adb"
+        Channel.Capability.MOUNT_MODULE -> "module mounting"
+        Channel.Capability.PACKAGE_CONTROL -> "package control"
+        Channel.Capability.KERNEL_TUNABLES -> "kernel tunables"
+        Channel.Capability.SETTINGS_WRITE -> "settings writes"
+        Channel.Capability.APP_DATA -> "app private data"
+    }
