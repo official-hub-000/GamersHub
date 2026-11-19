@@ -34,22 +34,44 @@ jobs:
           FILE_ID: ${{ inputs.file_id }}
           OUT_PATH: ${{ inputs.out_path }}
         run: |
-          set -eu
-          mkdir -p "$(dirname "$OUT_PATH")"
-          pip install -q gdown 2>&1 | tail -1
+          set -u
           report=/tmp/import-report.txt
           echo "file_id=$FILE_ID" > "$report"
           echo "out_path=$OUT_PATH" >> "$report"
+          mkdir -p "$(dirname "$OUT_PATH")"
 
-          gdown "$FILE_ID" -O /tmp/media.bin 2>&1 | tail -5 || true
+          pip install -q gdown 2>&1 | tail -1
+          set +e
+          gdown "$FILE_ID" -O /tmp/media.bin >> "$report" 2>&1
+          echo "gdown_exit=$?" >> "$report"
+          set -e
+
           if [ ! -s /tmp/media.bin ]; then
-            echo "--- gdown produced nothing, trying drive.usercontent" | tee -a "$report"
-            curl -sL "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" -o /tmp/media.bin
+            echo "--- gdown produced nothing, trying confirm-page scrape" | tee -a "$report"
+            curl -sL -c /tmp/cj "https://drive.google.com/file/d/${FILE_ID}/view" -o /tmp/page.html
+            UUID=$(grep -oE 'name="uuid" value="[^"]+"' /tmp/page.html | head -1 | sed 's/.*value="//;s/"//')
+            echo "uuid=${UUID:-none}" >> "$report"
+            if [ -n "${UUID:-}" ]; then
+              curl -sL -b /tmp/cj -o /tmp/media.bin \
+                "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t&uuid=${UUID}"
+            else
+              curl -sL -o /tmp/media.bin \
+                "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t"
+            fi
           fi
-          echo "downloaded=$(stat -c%s /tmp/media.bin 2>/dev/null || echo 0) bytes" | tee -a "$report"
 
-          # must be a real MP4 (ftyp box near the start)
-          head -c 64 /tmp/media.bin | grep -qa "ftyp" || { echo "NOT AN MP4" | tee -a "$report"; exit 1; }
+          SIZE=$(stat -c%s /tmp/media.bin 2>/dev/null || echo 0)
+          echo "downloaded=$SIZE bytes" | tee -a "$report"
+          head -c 32 /tmp/media.bin | xxd | head -2 >> "$report" 2>/dev/null || true
+
+          if ! head -c 64 /tmp/media.bin | grep -qa "ftyp"; then
+            echo "::error::download is not an MP4"
+            echo "RESULT: FAIL - not an mp4" >> "$report"
+            cp /tmp/media.bin /tmp/bad.bin 2>/dev/null || true
+            cp /tmp/page.html /tmp/page.bin 2>/dev/null || true
+            exit 1
+          fi
+          echo "RESULT: downloaded ok" >> "$report"
           cp /tmp/media.bin "$OUT_PATH"
 
       - name: Inspect streams
@@ -89,9 +111,14 @@ jobs:
           git checkout --orphan media-import-tmp 2>/dev/null || git checkout -B media-import-tmp
           git rm -rq --cached . >/dev/null 2>&1 || true
           mkdir -p "$(dirname "$OUT_PATH")"
-          cp "$GITHUB_WORKSPACE/$OUT_PATH" "$OUT_PATH"
+          if [ -f "$GITHUB_WORKSPACE/$OUT_PATH" ]; then
+            cp "$GITHUB_WORKSPACE/$OUT_PATH" "$OUT_PATH"
+          else
+            echo "media was never written" >> /tmp/import-report.txt
+          fi
+          if [ -f /tmp/page.html ]; then cp /tmp/page.html page.html; git add -f page.html; fi
           cp /tmp/import-report.txt import-report.txt
-          git add -f "$OUT_PATH" import-report.txt
+          git add -f "$OUT_PATH" import-report.txt 2>/dev/null || git add -f import-report.txt
           git -c user.name="media-relay" -c user.email="relay@users.noreply.github.com" \
               commit -m "import $(basename "$OUT_PATH") [skip ci]" || true
           git push -f origin HEAD:media-import
