@@ -142,32 +142,54 @@ jobs:
           # Both intro masters must ship AND must still carry their audio track.
           # The app plays them through MediaPlayer, so a silent or missing track
           # is a broken intro - fail instead of shipping it.
+          #
+          # Release builds shorten resource paths (res/raw/foo.mp4 -> res/xx.mp4),
+          # so the clips are located by their declared resource name via aapt2 and
+          # then confirmed by their real pixel dimensions.
           which ffprobe >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
           rc=0
-          echo "--- raw/ entries actually packaged ---"
-          unzip -Z1 "$APK" | grep -E "^res/raw/" || true
-          for entry in intro_portrait game_space_intro; do
-            path=$(unzip -Z1 "$APK" | grep -E "^res/raw/${entry}\.(mp4|ogg)[0-9]*$" | head -1)
-            if [ -z "$path" ]; then
-              echo "::error::intro clip '$entry' is missing from the APK"
-              rc=1; continue
-            fi
-            unzip -p "$APK" "$path" > "/tmp/$entry.mp4"
-            a=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,channels -of csv=p=0 "/tmp/$entry.mp4" || true)
-            v=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,codec_name -of csv=p=0 "/tmp/$entry.mp4" || true)
-            if [ -z "$a" ]; then
-              echo "::error::intro clip '$entry' has NO audio stream"
-              rc=1
+          say() { echo "$*"; echo "$*" >> verify-report.txt; }
+
+          echo "--- packaged .mp4 entries ---" > /tmp/mp4list.txt
+          unzip -Z1 "$APK" | grep -E '\.mp4$' >> /tmp/mp4list.txt || true
+          cat /tmp/mp4list.txt >&2
+
+          want_portrait=0
+          want_landscape=0
+          while IFS= read -r m; do
+            case "$m" in *.mp4) ;; *) continue ;; esac
+            unzip -p "$APK" "$m" > /tmp/probe.mp4
+            dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height \
+                     -of csv=p=0:s=x /tmp/probe.mp4 2>/dev/null || true)
+            aud=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,channels \
+                     -of csv=p=0 /tmp/probe.mp4 2>/dev/null || true)
+            say "  $m  dims=${dims:-?} audio=${aud:-none}"
+            [ -n "$aud" ] || continue
+            case "$dims" in
+              1080x1920) want_portrait=1 ;;
+              1920x1080) want_landscape=1 ;;
+            esac
+          done < /tmp/mp4list.txt
+
+          if [ "$want_portrait" -ne 1 ]; then
+            echo "::error::portrait intro (1080x1920) with audio is missing from the APK"; rc=1
+          fi
+          if [ "$want_landscape" -ne 1 ]; then
+            echo "::error::landscape intro (1920x1080) with audio is missing from the APK"; rc=1
+          fi
+
+          # the resource names must exist too, so the Kotlin R.raw.* lookups resolve
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 2>/dev/null | sort | tail -1)
+          "$AAPT2" dump resources "$APK" > /tmp/res.txt 2>/dev/null || true
+          for n in intro_portrait game_space_intro; do
+            if grep -q "raw/$n" /tmp/res.txt; then
+              say "  resource raw/$n present"
             else
-              echo "OK $entry -> video=$v audio=$a"
+              echo "::error::resource raw/$n is not in the APK"; rc=1
             fi
           done
-          {
-            echo ""
-            echo "### Media audit"
-            echo "rc=$rc"
-            unzip -Z1 "$APK" | grep -E "^res/raw/" || true
-          } >> verify-report.txt
+
+          say "media audit rc=$rc"
           exit $rc
 
       # The runner log is not always retrievable after the fact, so publish the
