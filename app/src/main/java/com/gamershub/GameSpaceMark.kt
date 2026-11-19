@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlin.math.min
 
 /**
@@ -298,7 +299,7 @@ fun MarkCore(
             lineTo(cx - side * 0.46f, topY + side * 0.20f)
             close()
         }
-        drawPath(wingPath, grad.copy(alpha = 0.92f * a))
+        drawPath(wingPath, grad, alpha = 0.92f * a)
 
         // --- leading edge highlight
         drawPath(
@@ -334,9 +335,10 @@ fun MarkCore(
                 size = Size(railW, railH)
             )
             drawRect(
-                grad.copy(alpha = 0.95f * a),
+                brush = grad,
                 topLeft = Offset(x, railY),
-                size = Size(railW * e, railH)
+                size = Size(railW * e, railH),
+                alpha = 0.95f * a
             )
         }
 
@@ -348,9 +350,10 @@ fun MarkCore(
             center = Offset(cx, h * 0.40f)
         )
         drawCircle(
-            grad.copy(alpha = coreA),
+            brush = grad,
             radius = side * 0.070f,
-            center = Offset(cx, h * 0.40f)
+            center = Offset(cx, h * 0.40f),
+            alpha = coreA
         )
         drawCircle(
             Color.White.copy(alpha = 0.55f * coreA),

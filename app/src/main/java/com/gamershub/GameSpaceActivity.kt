@@ -353,6 +353,13 @@ private fun GameSpaceScreen(
                     if (i == activeTab) accentNow() else Color(0xFF150E0F),
                     tween(220), label = "tabBg$i"
                 )
+                // The active tab carries the emblem's own gradient, so the nav
+                // reads as a row of armour segments rather than flat buttons.
+                val activeFill = Brush.linearGradient(
+                    listOf(accentNow(), accentPairNow()),
+                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                    end = androidx.compose.ui.geometry.Offset(0f, Float.POSITIVE_INFINITY)
+                )
                 val tabTint by animateColorAsState(
                     if (i == activeTab) Color.White else GC.InkSoft,
                     tween(220), label = "tabTint$i"
@@ -370,7 +377,10 @@ private fun GameSpaceScreen(
                         .height(tabH)
                         .graphicsLayer { scaleX = tabScale; scaleY = tabScale }
                         .clip(ChevShape)
-                        .background(tabBg)
+                        .then(
+                            if (i == activeTab) Modifier.background(activeFill)
+                            else Modifier.background(tabBg)
+                        )
                         .clickable(tabInteraction, indication = null) {
                             when (i) {
                                 1 -> { showControl = true; showTexture = false; showApps = false }
@@ -780,11 +790,19 @@ private fun LiveClock(fontSize: androidx.compose.ui.unit.TextUnit) {
 }
 
 /** Slanted tile used by the four navigation chevrons. */
+/**
+ * Slanted tile used by the navigation chevrons. The bottom edge carries the
+ * emblem's notch so the chrome and the mark share one shape language.
+ */
 private val ChevShape = GenericShape { size, _ ->
     val cut = size.height * 0.30f
+    val notch = size.width * 0.14f
     moveTo(cut, 0f)
     lineTo(size.width, 0f)
     lineTo(size.width - cut, size.height)
+    lineTo(size.width * 0.5f + notch, size.height)
+    lineTo(size.width * 0.5f, size.height - notch * 0.55f)
+    lineTo(size.width * 0.5f - notch, size.height)
     lineTo(0f, size.height)
     close()
 }
