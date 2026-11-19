@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import com.gamershub.GamersHubApp
-import com.gamershub.core.Channel.Capability.label
 import com.gamershub.core.capture.Recorder
 import com.gamershub.core.capture.RecorderService
 import com.gamershub.core.capture.Stream
@@ -208,7 +207,7 @@ object Engine {
         return when {
             blocked.isEmpty() -> "nothing"
             blocked.size >= 4 -> "props, /data/adb, kernel tuning"
-            else -> blocked.joinToString(", ") { it.label }
+            else -> blocked.joinToString(", ") { it.capabilityLabel }
         }
     }
 

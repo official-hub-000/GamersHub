@@ -128,7 +128,7 @@ object Channel {
  * Human label for a capability, used when explaining why something is blocked.
  * Top-level so both the engine and the UI can name the same thing identically.
  */
-val Channel.Capability.label: String
+val Channel.Capability.capabilityLabel: String
     get() = when (this) {
         Channel.Capability.SHELL -> "shell commands"
         Channel.Capability.PROPS -> "system properties"
