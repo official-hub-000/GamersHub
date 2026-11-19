@@ -1,0 +1,543 @@
+package com.gamershub.ui
+
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.gamershub.core.root.ModuleManager
+import com.gamershub.core.root.RootShell
+import com.gamershub.core.root.RootTools
+import com.gamershub.theme.GC
+import com.gamershub.theme.LocalAccent
+import com.gamershub.theme.RomKit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Root screen.
+ *
+ * The point of this screen is "use a gaming module": see what is installed, turn
+ * modules on and off, flash a downloaded zip, and get a straight answer when root
+ * is not available. Every value shown is read live from the device — nothing is
+ * cached into looking healthy.
+ */
+@Composable
+fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
+    val context = LocalContext.current
+    val accent = LocalAccent.current
+    val scope = rememberCoroutineScope()
+
+    var busy by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var showDiag by remember { mutableStateOf(false) }
+
+    // Live snapshot: root state and module list. Refreshed on a timer so a change
+    // made in the Magisk app shows up here without a restart.
+    val snap by produceState(initialValue = Snapshot()) {
+        while (true) {
+            value = withContext(Dispatchers.IO) {
+                Snapshot(
+                    ready = RootShell.ready(),
+                    state = RootShell.statusLabel(),
+                    method = RootShell.method,
+                    manager = ModuleManager.managerName(),
+                    managerVersion = ModuleManager.managerVersion(),
+                    suBinary = RootShell.suBinary(),
+                    modules = if (RootShell.ready()) ModuleManager.list() else emptyList(),
+                    zygisk = ModuleManager.zygiskEnabled(),
+                    diag = if (showDiag && RootShell.ready()) RootShell.diagnose(context) else emptyList(),
+                )
+            }
+            delay(2500)
+        }
+    }
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = "flashing"
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    // Copy into our cache: the manager reads as root from a different
+                    // namespace and cannot rely on the picker's content URI.
+                    val name = context.contentResolver
+                        .query(uri, null, null, null, null)?.use { c ->
+                            val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (c.moveToFirst() && i >= 0) c.getString(i) else null
+                        } ?: "module.zip"
+                    val out = java.io.File(context.cacheDir, "flash_${System.currentTimeMillis()}_$name")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        out.outputStream().use { input.copyTo(it) }
+                    } ?: return@runCatching RootTools.Result(false, "could not read the file")
+                    val r = ModuleManager.install(out.absolutePath)
+                    out.delete()
+                    r
+                }.getOrElse { RootTools.Result(false, it.message ?: "flash failed") }
+            }
+            busy = ""
+            message = if (result.ok) "✓ ${result.detail}"
+            else "✗ ${result.detail}"
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(GC.Bg)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(Modifier.height(54.dp))
+
+        Text(
+            "ROOT",
+            style = RomKit.Title,
+            color = GC.Text
+        )
+        Text(
+            "modules · system depth · diagnostics",
+            color = GC.TextDim,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(16.dp))
+
+        // ---------------------------------------------------------- root state
+        if (!snap.ready) {
+            Card(borderColor = Color(0x55E2A03A)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Security, null, tint = accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Root not granted", color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            snap.state,
+                            color = GC.TextDim,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Flashing and module control need root. Overlays, macros and the rest of " +
+                        "GamersHub keep working through Shizuku without it.",
+                    color = GC.TextDim,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("REQUEST ROOT", filled = true) {
+                        scope.launch {
+                            busy = "requesting"
+                            val ok = withContext(Dispatchers.IO) { RootShell.acquire(context) }
+                            busy = ""
+                            message = if (ok) "Root granted (${RootShell.method})" else RootShell.lastError
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    Pill("DIAGNOSE") { showDiag = !showDiag }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        } else {
+            Card {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Root active", color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            buildString {
+                                append(snap.manager)
+                                if (snap.managerVersion.isNotBlank()) append(" · ${snap.managerVersion}")
+                                append(" · ${snap.method}")
+                            },
+                            color = GC.TextDim,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("REFRESH") {
+                        scope.launch { withContext(Dispatchers.IO) { ModuleManager.list() } }
+                    }
+                    Pill("DIAGNOSE") { showDiag = !showDiag }
+                    if (snap.modules.isNotEmpty()) {
+                        Pill("REBOOT") {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { ModuleManager.reboot() }
+                                Toast.makeText(context, "Rebooting…", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // ---------------------------------------------------------- diagnostics
+        AnimatedVisibility(visible = showDiag) {
+            Card {
+                Text("DIAGNOSTICS", color = accent, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                if (snap.diag.isEmpty()) {
+                    Text("enable root to see live values", color = GC.TextDim, fontSize = 12.sp)
+                } else {
+                    snap.diag.forEach { line ->
+                        Text(
+                            line,
+                            color = GC.TextDim,
+                            fontSize = 11.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier.padding(vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // ---------------------------------------------------------- zygisk hint
+        if (snap.ready && snap.zygisk == false) {
+            Card(borderColor = Color(0x55E2A03A)) {
+                Text("Zygisk is off", color = GC.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Most gaming modules need Zygisk to inject into game processes. " +
+                        "Enable it in ${snap.manager} → Settings, then reboot.",
+                    color = GC.TextDim,
+                    fontSize = 12.sp
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // ---------------------------------------------------------- flash
+        SectionHead("FLASH A MODULE")
+        Card {
+            Text(
+                "Pick a module .zip you already downloaded. It is flashed with " +
+                    "${snap.manager}'s own installer, so the result is identical to " +
+                    "flashing it from the manager.",
+                color = GC.TextDim,
+                fontSize = 12.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Pill(
+                    if (snap.ready) "CHOOSE .ZIP" else "ROOT REQUIRED",
+                    filled = true,
+                    enabled = snap.ready && busy.isEmpty()
+                ) {
+                    picker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                }
+                if (busy == "flashing") {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = accent
+                    )
+                    Text("flashing…", color = GC.TextDim, fontSize = 12.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // ---------------------------------------------------------- modules
+        SectionHead("INSTALLED MODULES (${snap.modules.size})")
+        if (!snap.ready) {
+            Text("Modules appear once root is granted.", color = GC.TextDim, fontSize = 12.sp)
+        } else if (snap.modules.isEmpty()) {
+            Card {
+                Text("No modules installed.", color = GC.Text, fontSize = 14.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "If you have modules in ${snap.manager} and see none here, the module " +
+                        "directory is not readable — run DIAGNOSE.",
+                    color = GC.TextDim,
+                    fontSize = 12.sp
+                )
+            }
+        } else {
+            snap.modules.forEach { m ->
+                ModuleCard(
+                    module = m,
+                    accent = accent,
+                    busy = busy.isNotEmpty(),
+                    onToggle = { want ->
+                        scope.launch {
+                            busy = m.id
+                            val r = withContext(Dispatchers.IO) {
+                                if (want) ModuleManager.enable(m.id) else ModuleManager.disable(m.id)
+                            }
+                            busy = ""
+                            message = r.detail
+                            Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    onRemove = {
+                        scope.launch {
+                            busy = m.id
+                            val r = withContext(Dispatchers.IO) { ModuleManager.remove(m.id) }
+                            busy = ""
+                            message = r.detail
+                            Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+
+        // ---------------------------------------------------------- deep control
+        SectionHead("SYSTEM DEPTH")
+        Card {
+            Text(
+                "Privileged actions that go below the app sandbox. Every one reports " +
+                    "the real result rather than assuming success.",
+                color = GC.TextDim,
+                fontSize = 12.sp
+            )
+            Spacer(Modifier.height(10.dp))
+            val depth = listOf(
+                Triple(Icons.Filled.Tune, "Drop caches + fstrim", "free RAM and trim storage"),
+                Triple(Icons.Filled.Refresh, "Reset display", "size and density back to native"),
+                Triple(Icons.Filled.Block, "Unfreeze all", "re-enable packages frozen earlier"),
+            )
+            depth.forEach { (icon, title, sub) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RomKit.R10)
+                        .clickable(enabled = snap.ready) {
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) {
+                                    when (title) {
+                                        "Drop caches + fstrim" -> {
+                                            RootTools.trimCaches()
+                                            RootTools.fstrim()
+                                        }
+                                        "Reset display" -> RootTools.resetDisplay()
+                                        else -> RootTools.Result(true, "nothing frozen by GamersHub")
+                                    }
+                                }
+                                Toast.makeText(context, r.detail.take(120), Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        .padding(vertical = 10.dp, horizontal = 4.dp)
+                ) {
+                    Icon(icon, null, tint = if (snap.ready) accent else GC.TextDim, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(title, color = if (snap.ready) GC.Text else GC.TextDim, fontSize = 14.sp)
+                        Text(sub, color = GC.TextDim, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        if (message.isNotBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Text(message, color = GC.TextDim, fontSize = 12.sp)
+        }
+
+        Spacer(Modifier.height(110.dp))
+    }
+}
+
+private data class Snapshot(
+    val ready: Boolean = false,
+    val state: String = "Not checked",
+    val method: String = "",
+    val manager: String = "—",
+    val managerVersion: String = "",
+    val suBinary: String? = null,
+    val modules: List<ModuleManager.Module> = emptyList(),
+    val zygisk: Boolean? = null,
+    val diag: List<String> = emptyList(),
+)
+
+@Composable
+private fun ModuleCard(
+    module: ModuleManager.Module,
+    accent: Color,
+    busy: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+) {
+    var expanded by remember(module.id) { mutableStateOf(false) }
+    Card(borderColor = if (module.enabled) Color(0x334ADE80) else Color(0x228A94A8)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Extension,
+                null,
+                tint = when {
+                    module.pendingRemove -> Color(0xFFE23A3A)
+                    module.enabled -> accent
+                    else -> GC.TextDim
+                },
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    module.name,
+                    color = if (module.enabled) GC.Text else GC.TextDim,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "${module.id} · v${module.version} · ${module.state}",
+                    color = GC.TextDim,
+                    fontSize = 11.sp
+                )
+            }
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                "details",
+                tint = GC.TextDim,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable { expanded = !expanded }
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                if (module.description.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(module.description, color = GC.TextDim, fontSize = 11.sp)
+                }
+                if (module.author.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("by ${module.author}", color = GC.TextDim, fontSize = 11.sp)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill(
+                        if (module.enabled) "DISABLE" else "ENABLE",
+                        filled = module.enabled,
+                        enabled = !busy && !module.pendingRemove
+                    ) { onToggle(!module.enabled) }
+                    if (!module.pendingRemove) {
+                        Pill("REMOVE", enabled = !busy) { onRemove() }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Changes take effect after a reboot — that is how the manager works, " +
+                        "not a GamersHub limitation.",
+                    color = GC.TextDim,
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Card(
+    borderColor: Color = RomKit.Stroke,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RomKit.R18)
+            .background(RomKit.Panel)
+            .border(1.dp, borderColor, RomKit.R18)
+            .padding(14.dp)
+    ) { content() }
+}
+
+@Composable
+private fun SectionHead(text: String) {
+    Text(
+        text,
+        color = GC.TextDim,
+        fontSize = 11.sp,
+        letterSpacing = 2.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+    )
+}
+
+@Composable
+private fun Pill(
+    label: String,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val bg = if (filled) RomKit.Panel2 else Color.Transparent
+    val border = if (filled) RomKit.Stroke else RomKit.Stroke.copy(alpha = 0.6f)
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(9.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 13.dp, vertical = 8.dp)
+    ) {
+        Text(
+            label,
+            color = if (enabled) RomKit.TextHi else RomKit.TextLo.copy(alpha = 0.5f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.6.sp
+        )
+    }
+}

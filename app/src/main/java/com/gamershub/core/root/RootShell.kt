@@ -46,6 +46,11 @@ object RootShell {
     var method: String = ""
         private set
 
+    /** Absolute path of the su binary that worked, when it was not plain PATH su. */
+    @Volatile
+    var binPath: String? = null
+        private set
+
     @Volatile
     private var session: Session? = null
 
@@ -79,7 +84,34 @@ object RootShell {
      * Cheap check that does not prompt: is there a usable `su` on the path?
      * Used to decide whether the Root card is worth showing at all.
      */
-    fun suExists(): Boolean = runCatching {
+    /**
+     * Every place a root solution may put `su`. Magisk uses /system/bin or the
+     * debug_ramdisk overlay (which is not on PATH for app processes), KernelSU
+     * and APatch use /system/bin or /data/adb. Probing PATH alone misses most
+     * modern installs, so all known locations are checked directly.
+     */
+    private val SU_PATHS = listOf(
+        "/system/bin/su",
+        "/system/xbin/su",
+        "/sbin/su",
+        "/su/bin/su",
+        "/debug_ramdisk/su",
+        "/data/adb/magisk/su",
+        "/data/adb/ksu/bin/su",
+        "/data/adb/ap/bin/su",
+        "/vendor/bin/su",
+    )
+
+    /** First su binary that exists, or null. Cheap: one shell, no prompt. */
+    fun suBinary(): String? {
+        val cmd = SU_PATHS.joinToString("; ") { "test -x $it && echo $it" }
+        val out = quick(cmd, 4_000) ?: return null
+        return out.lines().map { it.trim() }.firstOrNull { line ->
+            line.startsWith("/") && !line.contains(" ")
+        }
+    }
+
+    fun suExists(): Boolean = suBinary() != null || runCatching {
         ProcessBuilder("sh", "-c", "command -v su >/dev/null 2>&1").start().waitFor() == 0
     }.getOrDefault(false)
 
@@ -90,15 +122,29 @@ object RootShell {
     fun acquire(context: Context): Boolean {
         if (ready()) return true
 
-        // 1. plain su (Magisk, KernelSU, APatch, SuperSU)
-        quick("su -c id", timeoutMs = 20_000)?.let { out ->
-            if (out.contains("uid=0")) {
-                state = State.READY
-                method = "su"
-                lastError = ""
-                startSession(context)
-                record("su -c id → uid=0")
-                return true
+        // 1. su, tried through PATH first and then by absolute path. Magisk's
+        //    debug_ramdisk and the KernelSU/APatch bins are not on an app's PATH,
+        //    which is why a plain `su -c id` fails on many rooted devices.
+        val binary = suBinary()
+        val candidates = buildList {
+            add("su")
+            binary?.let { if (it != "su") add(it) }
+        }
+        for (bin in candidates) {
+            quick("$bin -c id", timeoutMs = 20_000)?.let { out ->
+                if (out.contains("uid=0")) {
+                    state = State.READY
+                    method = if (bin == "su") "su" else "su ($bin)"
+                    binPath = binary
+                    lastError = ""
+                    startSession(context)
+                    record("$bin -c id → uid=0")
+                    return true
+                }
+                if (out.contains("denied", true) || out.contains("not allowed", true)) {
+                    state = State.DENIED
+                    lastError = "Superuser request denied. Open your root manager and allow GamersHub."
+                }
             }
         }
 
@@ -134,6 +180,34 @@ object RootShell {
         lastError = "No root. Install Magisk (or KernelSU/APatch) and grant GamersHub superuser access."
         record("acquire failed → $lastError")
         return false
+    }
+
+    /**
+     * Full diagnostic for the Root screen. Every line is a real probe, so a user
+     * who cannot get root can see exactly which step failed instead of a generic
+     * "no root" message.
+     */
+    fun diagnose(context: Context): List<String> {
+        val lines = mutableListOf<String>()
+        lines += "state        ${state.name}"
+        lines += "su on PATH   ${runCatching {
+            ProcessBuilder("sh", "-c", "command -v su").start()
+                .inputStream.bufferedReader().readText().trim().ifBlank { "not found" }
+        }.getOrDefault("probe failed")}"
+        lines += "su binary    ${suBinary() ?: "not found in any known location"}"
+        lines += "method       ${method.ifBlank { "—" }}"
+        lines += "session      ${if (session?.alive == true) "alive" else "not running"}"
+        lines += "uid now      ${run("id", 4_000)?.lines()?.firstOrNull()?.take(70) ?: "—"}"
+        lines += "magisk       ${run("magisk -V 2>/dev/null", 4_000)?.trim()?.take(40).orEmpty().ifBlank { "—" }}"
+        lines += "zygisk       ${when (ModuleManager.zygiskEnabled()) {
+            true -> "enabled"
+            false -> "disabled"
+            null -> "unknown / not Magisk"
+        }}"
+        lines += "modules      ${ModuleManager.list().size} installed"
+        lines += "manager      ${ModuleManager.managerName()}"
+        if (lastError.isNotBlank()) lines += "last error   $lastError"
+        return lines
     }
 
     /** Drops the persistent shell and marks root unusable; call on engine stop. */
@@ -306,7 +380,10 @@ object RootShell {
 
         companion object {
             fun start(): Session {
-                val p = ProcessBuilder("su").redirectErrorStream(true).start()
+                // Use the su that actually answered during discovery, so the session
+                // does not depend on PATH resolution that already failed once.
+                val bin = binPath ?: "su"
+                val p = ProcessBuilder(bin).redirectErrorStream(true).start()
                 val w = OutputStreamWriter(p.outputStream)
                 val r = p.inputStream.bufferedReader()
                 val s = Session(p, w, r)

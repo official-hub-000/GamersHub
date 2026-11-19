@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.foundation.gestures.Orientation
@@ -117,6 +118,7 @@ enum class Tab(val icon: ImageVector, val label: String) {
     LOBBY(Icons.Filled.Gamepad, "Lobby"),
     LABS(Icons.Filled.Science, "Game-Labs"),
     TOOLS(Icons.Filled.Widgets, "Tools"),
+    ROOT(Icons.Filled.Security, "Root"),
     PROFILE(Icons.Filled.Person, "Profile")
 }
 
@@ -453,6 +455,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     onOpenSheet = { key -> sheet = sheetFor(key) },
                     onOpenGameSpace = { openGameSpace(context, library.firstOrNull()?.pkg ?: "") }
                 )
+                Tab.ROOT -> RootScreen()
                 Tab.LABS -> GameLabsScreen(
                     envLevel = envLevel,
                     toggleState = ::toggleGet,
