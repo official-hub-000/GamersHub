@@ -284,10 +284,12 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
             rootReady = snap.ready,
             accent = accent,
             busy = busy,
-            onAct = { label, block ->
+            onAct = { label: String, block: suspend () -> String ->
                 scope.launch {
                     busy = label
-                    message = withContext(Dispatchers.IO) { runCatching(block).getOrElse { it.message ?: "failed" } }
+                    message = withContext(Dispatchers.IO) {
+                        runCatching { block() }.getOrElse { it.message ?: "failed" }
+                    }
                     busy = ""
                 }
             }
@@ -636,7 +638,7 @@ private fun SuSection(
                     ) {
                         Text(
                             if (g.allowed == true) "ALLOWED" else "ASKING",
-                            color = if (g.allowed == true) accent else GC.TextLo,
+                            color = if (g.allowed == true) accent else RomKit.TextLo,
                             fontSize = 10.sp, fontWeight = FontWeight.SemiBold
                         )
                     }
