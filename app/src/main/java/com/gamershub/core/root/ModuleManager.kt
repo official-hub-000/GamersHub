@@ -187,12 +187,25 @@ object ModuleManager {
         if (src.length() < 1024) return RootTools.Result(false, "file is too small to be a module")
 
         // Validate before flashing — a bad zip in the wrong place can bootloop.
-        val check = RootShell.run("unzip -l '${q(src.absolutePath)}' 2>/dev/null | head -40")
+        // A GitHub "source archive" (repo-tag.zip) wraps everything in one folder
+        // and will not flash, so that layout is reported specifically rather than
+        // being passed to the installer to fail with a vague error.
+        val check = RootShell.run("unzip -l '${q(src.absolutePath)}' 2>/dev/null | head -60")
             .orEmpty()
-        if (!check.contains("module.prop") && !check.contains("META-INF")) {
+        val hasRootProp = check.lineSequence().any { line ->
+            line.trimEnd().endsWith(" module.prop")
+        }
+        val hasMeta = check.contains("META-INF")
+        if (!hasRootProp && !hasMeta) {
+            val wrapped = check.lineSequence().any { it.contains("/module.prop") }
             return RootTools.Result(
                 false,
-                "this zip has no module.prop or META-INF — it is not a flashable module"
+                if (wrapped) {
+                    "this zip has module.prop inside a folder — it is a source archive, not " +
+                        "a flashable module. Download the release .zip instead."
+                } else {
+                    "this zip has no module.prop or META-INF — it is not a flashable module"
+                }
             )
         }
 

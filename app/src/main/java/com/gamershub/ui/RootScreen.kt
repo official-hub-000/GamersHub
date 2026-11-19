@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gamershub.core.root.ModuleManager
+import com.gamershub.core.root.ModuleStore
 import com.gamershub.core.root.RootShell
 import com.gamershub.core.root.RootTools
 import com.gamershub.theme.GC
@@ -265,7 +267,18 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         }
 
         // ---------------------------------------------------------- flash
-        SectionHead("FLASH A MODULE")
+        // ---------------------------------------------------------- store
+        SectionHead("MODULE STORE")
+        StoreSection(
+            accent = accent,
+            rootReady = snap.ready,
+            context = context,
+            onBusy = { busy = it },
+            onMessage = { message = it },
+        )
+        Spacer(Modifier.height(16.dp))
+
+        SectionHead("FLASH FROM STORAGE")
         Card {
             Text(
                 "Pick a module .zip you already downloaded. It is flashed with " +
@@ -539,5 +552,290 @@ private fun Pill(
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.6.sp
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Module store
+// ---------------------------------------------------------------------------
+
+/**
+ * Store section: browse, filter, download and flash.
+ *
+ * The important behaviour is not the list — it is that installing from here runs
+ * the exact same validated path as a local zip. A download that is corrupt,
+ * truncated, or not actually a module is rejected before the installer sees it.
+ */
+@Composable
+private fun StoreSection(
+    accent: Color,
+    rootReady: Boolean,
+    context: android.content.Context,
+    onBusy: (String) -> Unit,
+    onMessage: (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var entries by remember { mutableStateOf<List<ModuleStore.Entry>>(emptyList()) }
+    var problems by remember { mutableStateOf<List<String>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var queried by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var gamingOnly by remember { mutableStateOf(true) }
+    var showAll by remember { mutableStateOf(false) }
+    var installing by remember { mutableStateOf("") }
+    var progress by remember { mutableStateOf<ModuleStore.Progress?>(null) }
+
+    fun load() {
+        if (loading) return
+        loading = true
+        scope.launch {
+            val (list, fails) = ModuleStore.loadAll()
+            entries = list
+            problems = fails
+            loading = false
+            queried = true
+        }
+    }
+
+    // Load once when the section first appears, so the store is not an empty box.
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    val filtered = remember(entries, query, gamingOnly) {
+        entries.filter { e ->
+            val q = query.trim().lowercase()
+            val matchQ = q.isEmpty() ||
+                e.name.lowercase().contains(q) ||
+                e.id.lowercase().contains(q) ||
+                e.description.lowercase().contains(q)
+            val matchCat = !gamingOnly || e.gaming
+            matchQ && matchCat
+        }
+    }
+
+    fun install(entry: ModuleStore.Entry) {
+        if (!rootReady) {
+            onMessage("Root is required to flash a module")
+            return
+        }
+        installing = entry.id
+        progress = null
+        scope.launch {
+            onBusy("store")
+            val result = runCatching {
+                val file = ModuleStore.download(entry, context.cacheDir) { p -> progress = p }
+                    .getOrThrow()
+                try {
+                    ModuleManager.install(file.absolutePath)
+                } finally {
+                    file.delete()
+                }
+            }.getOrElse {
+                com.gamershub.core.root.RootTools.Result(false, it.message ?: "download failed")
+            }
+            installing = ""
+            progress = null
+            onBusy("")
+            val text = if (result.ok) "✓ ${entry.name}: ${result.detail}"
+            else "✗ ${entry.name}: ${result.detail}"
+            onMessage(text)
+            android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.CloudDownload, null, tint = accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Download modules directly", color = GC.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    when {
+                        loading -> "loading catalogs…"
+                        entries.isNotEmpty() -> "${entries.size} modules from ${problems.size.let { if (it == 0) "all sources" else "${3 - it.coerceAtMost(3)} sources" }}"
+                        queried -> "no modules loaded"
+                        else -> "not loaded yet"
+                    },
+                    color = GC.TextDim,
+                    fontSize = 11.sp
+                )
+            }
+            Pill(if (loading) "…" else "RELOAD", enabled = !loading) { load() }
+        }
+
+        if (!rootReady) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Grant root to install. You can still browse the catalog now.",
+                color = GC.TextDim,
+                fontSize = 11.sp
+            )
+        }
+
+        AnimatedVisibility(visible = problems.isNotEmpty() && queried) {
+            Column {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Some sources did not answer: " + problems.joinToString("; ").take(180),
+                    color = Color(0xFFE2A03A),
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(10.dp))
+
+    // Search + filter
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(RomKit.Panel)
+                .border(1.dp, RomKit.Stroke, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(color = GC.Text, fontSize = 13.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(accent),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) {
+                        Text("search modules…", color = GC.TextDim, fontSize = 13.sp)
+                    } else inner()
+                }
+            )
+        }
+        Pill(if (gamingOnly) "GAMING" else "ALL", filled = gamingOnly) { gamingOnly = !gamingOnly }
+    }
+
+    if (loading) {
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = accent)
+            Spacer(Modifier.width(10.dp))
+            Text("fetching catalogs…", color = GC.TextDim, fontSize = 12.sp)
+        }
+    }
+
+    Spacer(Modifier.height(10.dp))
+
+    val visible = if (showAll) filtered else filtered.take(8)
+    visible.forEach { entry ->
+        StoreRow(
+            entry = entry,
+            accent = accent,
+            rootReady = rootReady,
+            installing = installing == entry.id,
+            progress = if (installing == entry.id) progress else null,
+            onInstall = { install(entry) }
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+
+    if (filtered.size > 8) {
+        Spacer(Modifier.height(2.dp))
+        Pill(if (showAll) "SHOW FEWER" else "SHOW ALL ${filtered.size}") { showAll = !showAll }
+    }
+
+    if (queried && !loading && filtered.isEmpty()) {
+        Text(
+            if (gamingOnly) "Nothing matched. Tap ALL to search every category."
+            else "Nothing matched that search.",
+            color = GC.TextDim,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun StoreRow(
+    entry: ModuleStore.Entry,
+    accent: Color,
+    rootReady: Boolean,
+    installing: Boolean,
+    progress: ModuleStore.Progress?,
+    onInstall: () -> Unit,
+) {
+    var expanded by remember(entry.id) { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RomKit.R12)
+            .background(RomKit.Panel)
+            .border(1.dp, RomKit.Stroke, RomKit.R12)
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(entry.name, color = GC.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    buildString {
+                        append(entry.version)
+                        if (entry.author.isNotBlank()) append(" · ${entry.author}")
+                        if (entry.sizeLabel.isNotEmpty()) append(" · ${entry.sizeLabel}")
+                        if (entry.source.isNotBlank()) append(" · ${entry.source}")
+                    },
+                    color = GC.TextDim,
+                    fontSize = 10.sp
+                )
+            }
+            if (installing) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = accent)
+            } else {
+                Pill("GET", filled = true, enabled = rootReady) { onInstall() }
+            }
+        }
+
+        if (entry.description.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                entry.description.take(if (expanded) 400 else 90) +
+                    if (!expanded && entry.description.length > 90) "…" else "",
+                color = GC.TextDim,
+                fontSize = 11.sp
+            )
+            if (entry.description.length > 90) {
+                Text(
+                    if (expanded) "less" else "more",
+                    color = accent,
+                    fontSize = 10.sp,
+                    modifier = Modifier.clickable { expanded = !expanded }
+                )
+            }
+        }
+
+        if (installing && progress != null) {
+            Spacer(Modifier.height(8.dp))
+            val p = progress
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(RomKit.Panel2)
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(p.fraction.coerceIn(0.02f, 1f))
+                        .height(3.dp)
+                        .background(accent)
+                )
+            }
+            Spacer(Modifier.height(3.dp))
+            Text(
+                if (p.total > 0) "${(p.read / 1024)} / ${(p.total / 1024)} KB"
+                else "${p.read / 1024} KB",
+                color = GC.TextDim,
+                fontSize = 9.sp
+            )
+        }
     }
 }
