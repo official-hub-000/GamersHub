@@ -40,6 +40,12 @@ jobs:
               -dname "CN=GamersHub, OU=App, O=GamersHub, C=US"
           fi
 
+      # The master engine promises that OFF leaves nothing running. Enforce it:
+      # any service in the manifest that Engine.stopEverything() does not stop
+      # fails the build.
+      - name: Verify master-engine teardown coverage
+        run: python3 tools/check_engine_coverage.py
+
       - name: Build signed release APK
         run: |
           set -o pipefail

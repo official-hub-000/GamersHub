@@ -9,6 +9,7 @@ import com.gamershub.core.capture.StreamService
 import com.gamershub.core.root.RootShell
 import com.gamershub.core.shizuku.Shell
 import com.gamershub.core.upscale.UpscaleMirror
+import com.gamershub.core.upscale.UpscaleMirrorService
 import com.gamershub.overlay.CrosshairOverlayService
 import com.gamershub.overlay.FloatingPanelService
 import com.gamershub.overlay.MappingOverlayService
@@ -75,7 +76,9 @@ object Engine {
         GamersHubApp.step("engine:stopAll")
         val done = mutableListOf<String>()
 
-        // 1. overlays and foreground services
+        // 1. every declared service, explicitly. A service left out here is
+        //    exactly how something keeps running after "off", so the list must
+        //    stay in sync with AndroidManifest.xml.
         for ((label, cls) in listOf(
             "panel" to FloatingPanelService::class.java,
             "crosshair" to CrosshairOverlayService::class.java,
@@ -84,6 +87,7 @@ object Engine {
             "cursor" to MouseCursorService::class.java,
             "recorder" to RecorderService::class.java,
             "stream" to StreamService::class.java,
+            "upscale-service" to UpscaleMirrorService::class.java,
         )) {
             runCatching { context.stopService(Intent(context, cls)); done += label }
         }
