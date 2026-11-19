@@ -130,28 +130,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # The runner log is not always retrievable after the fact, so publish the
-      # verification report to a dedicated branch to keep the result auditable.
-      # Work happens in a throwaway clone so the build workspace (and the APK in
-      # app/build) is never touched.
-      - name: Publish verification report
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          test -f verify-report.txt || echo "no report produced" > verify-report.txt
-          WORK=$(mktemp -d)
-          git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORK/repo"
-          cd "$WORK/repo"
-          git checkout --orphan report 2>/dev/null || git checkout -B report
-          git rm -rf --quiet . >/dev/null 2>&1 || true
-          cp "$GITHUB_WORKSPACE/verify-report.txt" verify-report.txt
-          git add -f verify-report.txt
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "release verification report ${GITHUB_REF_NAME} [skip ci]" || true
-          git push -f origin HEAD:release-verify-report
-
       - name: Media audit
         run: |
           set -u
@@ -191,6 +169,28 @@ jobs:
             unzip -Z1 "$APK" | grep -E "^res/raw/" || true
           } >> verify-report.txt
           exit $rc
+
+      # The runner log is not always retrievable after the fact, so publish the
+      # verification report to a dedicated branch to keep the result auditable.
+      # Work happens in a throwaway clone so the build workspace (and the APK in
+      # app/build) is never touched.
+      - name: Publish verification report
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test -f verify-report.txt || echo "no report produced" > verify-report.txt
+          WORK=$(mktemp -d)
+          git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$WORK/repo"
+          cd "$WORK/repo"
+          git checkout --orphan report 2>/dev/null || git checkout -B report
+          git rm -rf --quiet . >/dev/null 2>&1 || true
+          cp "$GITHUB_WORKSPACE/verify-report.txt" verify-report.txt
+          git add -f verify-report.txt
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "release verification report ${GITHUB_REF_NAME} [skip ci]" || true
+          git push -f origin HEAD:release-verify-report
 
       - name: Report errors as annotations
         if: failure()
