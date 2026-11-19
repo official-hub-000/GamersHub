@@ -49,6 +49,19 @@ jobs:
             -Pandroid.injected.signing.key.alias=gamershub \
             -Pandroid.injected.signing.key.password=gamershub 2>&1 | tee build.log
 
+      # Keep the compiler output reachable even when the build fails, so a
+      # Kotlin error can be read without downloading runner logs.
+      - name: Capture build diagnostics
+        if: failure()
+        run: |
+          {
+            echo "BUILD FAILED"
+            echo "--- first 80 error/diagnostic lines ---"
+            grep -nE "(^e: |error:|warning: .*\.kt|What went wrong|FAILURE:|Execution failed)" build.log | head -80 || true
+            echo "--- tail ---"
+            tail -40 build.log || true
+          } > verify-report.txt
+
       # Hard gate: the shipped artifact must be a *signed release* build, not a
       # debug build. Signing identity is pinned to the committed keystore so an
       # accidental re-sign with debug keys fails the run instead of shipping.
