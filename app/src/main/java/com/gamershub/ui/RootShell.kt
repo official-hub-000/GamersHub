@@ -144,6 +144,7 @@ sealed interface SheetState {
     data object Graphics : SheetState
     data object Spoof : SheetState
     data object PanelHub : SheetState
+    data object EngineOff : SheetState
 }
 
 /** Root shell: tabs, octagon nav, sheets, live state. */
@@ -336,6 +337,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             "spoof" -> SheetState.Spoof
             "panel" -> SheetState.PanelHub
             "apps" -> SheetState.AppSelector
+            "engineoff" -> SheetState.EngineOff
             else -> SheetState.None
         }
 
@@ -696,6 +698,9 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                         onDismiss = { sheet = SheetState.None }
                     )
                     SheetState.Spoof -> com.gamershub.ui.sheets.SpoofSheet(
+                        onDismiss = { sheet = SheetState.None }
+                    )
+                    SheetState.EngineOff -> com.gamershub.ui.sheets.EngineOffSheet(
                         onDismiss = { sheet = SheetState.None }
                     )
                     SheetState.PanelHub -> com.gamershub.ui.sheets.OverlayHubSheet(

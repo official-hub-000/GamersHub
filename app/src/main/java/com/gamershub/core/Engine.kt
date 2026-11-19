@@ -3,6 +3,7 @@ package com.gamershub.core
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import com.gamershub.GamersHubApp
 import com.gamershub.core.capture.RecorderService
 import com.gamershub.core.capture.StreamService
@@ -19,28 +20,42 @@ import com.gamershub.overlay.MouseCursorService
 /**
  * The master engine switch.
  *
- * Every privileged or overlay surface in GamersHub is owned here. When the engine
- * goes OFF, [stopEverything] walks *all* of them — both the root path and the
- * Shizuku path — and tears them down, then clears the temporary root provider and
- * releases the root session. Turning it off therefore leaves nothing running:
- * no overlays, no capture, no upscale mirror, no root shell, no Shizuku user
- * service, and all display/property changes reverted.
+ * ON  → snapshot the device, then allow privileged work.
+ * OFF → *restore to default*: every overlay, capture surface, root session,
+ *        Shizuku binder, settings key, display override, property and identity
+ *        change the app made is undone.
  *
- * This is deliberately a single object rather than per-screen flags: a flag per
- * screen is exactly how things end up still running after "off".
+ * The difference between this and "stop the services" is the point of the whole
+ * object. Stopping services makes the app stop doing new things; restoring makes
+ * the phone the way it was. A user who turns the engine off expects the second.
+ *
+ * [stopEverything] therefore ends with [Restore.restore], which is snapshot-based
+ * and idempotent. Turning the engine off twice is harmless; turning it off with no
+ * snapshot still resets display and settings to platform defaults.
  */
 object Engine {
 
     private const val PREFS = "gamershub"
     private const val KEY_ENGINE_ON = "engine_master_on"
+    private const val KEY_ROOT_OPT_IN = "engine_root_opt_in"
 
     /** True only while the master switch is on. */
     @Volatile
     var isOn: Boolean = false
         private set
 
+    /** True while [stopEverything] is running, so teardown can still use a shell. */
+    @Volatile
+    var isStopping: Boolean = false
+        private set
+
     @Volatile
     var lastStopReport: String = ""
+        private set
+
+    /** Full detail of the last restore, for the report panel. */
+    @Volatile
+    var lastRestore: Restore.Report? = null
         private set
 
     fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -50,35 +65,61 @@ object Engine {
         isOn = prefs(context).getBoolean(KEY_ENGINE_ON, false)
     }
 
+    /** Whether the user asked to use root. Root is an option, never required. */
+    fun rootOptIn(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ROOT_OPT_IN, false)
+
+    fun setRootOptIn(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ROOT_OPT_IN, on).apply()
+        if (!on) RootShell.releaseAll()
+    }
+
     private fun persist(context: Context, on: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENGINE_ON, on).apply()
         isOn = on
     }
 
     /**
-     * Turns the engine on. Root is optional: with it the tree is deeper, without it
-     * the Shizuku path is used exactly as before.
+     * Turns the engine on.
+     *
+     * A snapshot of the device is taken *first*, so that OFF has something exact
+     * to return to. Root is attempted only when the user opted in — a Shizuku-only
+     * user gets the shell subset and is never nagged for su.
      */
-    fun start(context: Context, wantRoot: Boolean): Boolean {
-        persist(context, true)
+    fun start(context: Context, wantRoot: Boolean = false): String {
         GamersHubApp.step("engine:start")
-        if (wantRoot) RootShell.acquire(context)
-        Shell.ensure(context)
-        return true
+
+        // Capture before anything is written. This is what makes "restore to
+        // default" exact rather than approximate.
+        runCatching { Restore.capture(context) }
+
+        persist(context, true)
+
+        // Root is an option: attempted only when the caller asked for it. A
+        // successful grant is remembered so later starts do not re-prompt, and a
+        // failed one is remembered too so we stop nagging a user who has no root.
+        if (wantRoot) {
+            val got = runCatching { RootShell.acquire(context) }.getOrDefault(false)
+            if (got) setRootOptIn(context, true)
+        }
+        runCatching { Shell.ensure(context) }
+        return statusLine(context)
     }
 
     /**
-     * Turns EVERYTHING off. Idempotent, safe to call when nothing is running, and
-     * never throws — a wedged overlay must not stop the rest of the teardown.
+     * Turns EVERYTHING off and puts the phone back.
+     *
+     * Idempotent, safe when nothing is running, and never throws: a wedged overlay
+     * must not stop the rest of the teardown. Every stage is isolated.
      */
     fun stopEverything(context: Context): String {
+        isStopping = true
         persist(context, false)
         GamersHubApp.step("engine:stopAll")
         val done = mutableListOf<String>()
 
-        // 1. every declared service, explicitly. A service left out here is
-        //    exactly how something keeps running after "off", so the list must
-        //    stay in sync with AndroidManifest.xml.
+        // 1. Every declared service, explicitly. A service missing from this list
+        //    is exactly how something keeps running after "off".
         for ((label, cls) in listOf(
             "panel" to FloatingPanelService::class.java,
             "crosshair" to CrosshairOverlayService::class.java,
@@ -92,63 +133,105 @@ object Engine {
             runCatching { context.stopService(Intent(context, cls)); done += label }
         }
 
-        // 2. upscale / draw engine (capture + GL pipeline)
-        runCatching {
-            UpscaleMirror.stop(context)
-            done += "upscale"
-        }
+        // 2. Capture / draw pipeline.
+        runCatching { UpscaleMirror.stop(context); done += "upscale" }
 
-        // 3. privileged state that must not survive: display overrides, game mode,
-        //    spoofer props. GfxSafe is idempotent and reports what it put back.
-        runCatching {
-            val repairs = rootOrShell(context) { GfxSafe.repair(context) }
-            if (repairs.isNotEmpty()) done += "restore(${repairs.size})"
-        }
-
-        // 4. root session + temporary provider
+        // 3. Stop producing new privileged work before restoring state.
         runCatching {
             RootShell.run("pkill -f gamershub 2>/dev/null; true", 2_000)
-            done += "root pkill"
+            done += "root procs"
         }
+
+        // 4. RESTORE. This is the part that turns "off" into "as it was".
+        val report = runCatching { Restore.restore(context) }.getOrNull()
+        if (report != null) {
+            lastRestore = report
+            if (report.restored.isNotEmpty()) done += "restored ${report.restored.size}"
+            if (report.skipped.isNotEmpty()) done += "skipped ${report.skipped.size}"
+            if (report.failed.isNotEmpty()) done += "failed ${report.failed.size}"
+        } else {
+            done += "restore error"
+        }
+
+        // 5. Root session and the temporary provider.
         runCatching {
             RootShell.releaseAll()
             RootShell.removeProvider(context)
             done += "root released"
         }
 
-        // 5. Shizuku user service (the binder), and stop asking for privileges
+        // 6. Shizuku binder and its user service.
         runCatching {
             Shell.disconnect()
             Shell.exec("pkill -f GamersHubShellService 2>/dev/null; true")
             done += "shizuku released"
         }
 
-        lastStopReport = "stopped: " + done.joinToString(", ")
+        // 7. Local app state that represents "the engine was running".
+        runCatching {
+            context.getSharedPreferences("gamershub", Context.MODE_PRIVATE).edit()
+                .putBoolean("session", false)
+                .apply()
+        }
+
+        isStopping = false
+        lastStopReport = done.joinToString(", ")
+        GamersHubApp.step("engine:off $lastStopReport")
         return lastStopReport
     }
 
     /**
-     * Chooses root first, Shizuku second, and reports which one answered. Features
-     * that used to be Shizuku-only go through here so root automatically enables
-     * them with no further changes.
+     * Privileged exec through the best channel. Honours the master switch: with the
+     * engine off there is no channel, so a stale caller cannot slip work through.
      */
-    fun exec(context: Context, command: String): String? {
-        if (!isOn) return null
-        if (RootShell.ready()) {
-            RootShell.run(command)?.let { return it }
-        }
-        return Shell.exec(command)
-    }
+    fun exec(context: Context, command: String): String? = Channel.exec(context, command)
 
     fun available(context: Context): Boolean =
-        isOn && (RootShell.ready() || Shell.available())
+        isOn && Channel.kind() != Channel.Kind.NONE
 
-    /** Human-readable state for the UI cards. */
+    /** One-line state for cards. Says which channel is live and what it can reach. */
     fun statusLine(context: Context): String = when {
-        !isOn -> "Engine off — nothing running"
-        RootShell.ready() -> "Engine on · root · ${RootShell.method}"
-        Shell.available() -> "Engine on · Shizuku"
-        else -> "Engine on · no privilege (overlays only)"
+        !isOn -> "Engine off — phone restored"
+        Channel.kind() == Channel.Kind.ROOT ->
+            "Engine on · root · ${RootShell.method}"
+        Channel.kind() == Channel.Kind.SHIZUKU ->
+            "Engine on · Shizuku (shell subset) · root adds ${missingFromShizuku()}"
+        else -> "Engine on · no privilege — overlays only"
+    }
+
+    /** Names the capabilities only root would add, for the upgrade prompt. */
+    fun missingFromShizuku(): String {
+        val blocked = Channel.blocked().map { it.first }
+        return when {
+            blocked.isEmpty() -> "nothing"
+            blocked.size >= 4 -> "props, /data/adb, kernel tuning"
+            else -> blocked.joinToString(", ") { it.label }
+        }
+    }
+
+    /**
+     * What turning the engine off will undo, listed for the confirmation sheet.
+     * Reading this before stopping is what makes the button honest.
+     */
+    fun pendingChanges(context: Context): List<String> {
+        val out = mutableListOf<String>()
+        if (Restore.hasSnapshot(context)) {
+            out += "settings changed by GamersHub"
+            out += "display size/density override"
+        }
+        if (FloatingPanelService.isRunning ||
+            MonitorOverlayService.isRunning ||
+            CrosshairOverlayService.isRunning ||
+            MappingOverlayService.isRunning ||
+            MouseCursorService.isRunning
+        ) out += "running overlays"
+        if (Recorder.isRecording) out += "screen recording"
+        if (Stream.isStreaming) out += "live stream"
+        if (RootShell.ready()) out += "root shell session"
+        if (Shell.available()) out += "Shizuku connection"
+        if (GfxSafe.isUnclean()) out += "leftover graphics properties"
+        if (Settings.canDrawOverlays(context)) out += "overlay window permission (kept by Android)"
+        return out
     }
 
     private fun <T> rootOrShell(context: Context, block: () -> T): T = block()

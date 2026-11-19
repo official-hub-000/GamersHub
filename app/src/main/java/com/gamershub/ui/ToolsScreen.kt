@@ -191,32 +191,29 @@ fun ToolsScreen(
             title = if (engineOn) "Engine On" else "Engine Off",
             subtitle = when {
                 !engineOn -> "nothing is running — root, Shizuku, overlays, capture all off"
-                rootReady -> "root active (${com.gamershub.core.root.RootShell.method})"
-                com.gamershub.core.shizuku.Shell.available() -> "Shizuku active · root not granted"
+                rootReady -> "root · ${com.gamershub.core.Engine.missingFromShizuku()} also unlocked"
+                com.gamershub.core.shizuku.Shell.available() ->
+                    "Shizuku · shell subset · root adds ${com.gamershub.core.Engine.missingFromShizuku()}"
                 else -> "no privilege — overlays only"
             },
             active = engineOn,
             accent = accent,
             onToggle = {
-                scope.launch {
-                    if (com.gamershub.core.Engine.isOn) {
-                        val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            com.gamershub.core.Engine.stopEverything(context)
-                        }
-                        Toast.makeText(context, report, Toast.LENGTH_LONG).show()
-                    } else {
+                // Turning off is destructive, so it goes through the confirmation
+                // sheet that lists what will be undone — not a silent Toast.
+                if (com.gamershub.core.Engine.isOn) {
+                    onOpenSheet("engineoff")
+                } else {
+                    scope.launch {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            com.gamershub.core.Engine.start(context, wantRoot = true)
+                            com.gamershub.core.Engine.start(context, wantRoot = false)
                         }
                         Toast.makeText(context, com.gamershub.core.Engine.statusLine(context), Toast.LENGTH_SHORT).show()
                     }
                 }
             },
-            onConfig = {
-                val report = com.gamershub.core.Engine.stopEverything(context)
-                Toast.makeText(context, report, Toast.LENGTH_LONG).show()
-            },
-            configLabel = "ALL OFF"
+            onConfig = { onOpenSheet("engineoff") },
+            configLabel = "OFF"
         )
         ToolRow(
             icon = Icons.Filled.AdminPanelSettings,
@@ -239,13 +236,14 @@ fun ToolsScreen(
             },
             onConfig = {
                 scope.launch {
-                    val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        com.gamershub.core.Engine.stopEverything(context)
-                    }
-                    Toast.makeText(context, report, Toast.LENGTH_LONG).show()
+                    // Opting out of root is not a restore: it just drops the root
+                    // session. The phone is otherwise untouched, which is why this
+                    // is a separate action from turning the engine off.
+                    com.gamershub.core.Engine.setRootOptIn(context, false)
+                    Toast.makeText(context, "Root released — Shizuku subset still available", Toast.LENGTH_SHORT).show()
                 }
             },
-            configLabel = "STOP ALL"
+            configLabel = "RELEASE"
         )
         Spacer(Modifier.height(14.dp))
 

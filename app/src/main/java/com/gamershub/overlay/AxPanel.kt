@@ -905,18 +905,28 @@ private fun GfxPage(api: AxApi) {
             title = "ENGINE",
             subtitle = when {
                 !engineOn -> "off — root, Shizuku, overlays and capture are all stopped"
-                rootReady -> "on · root (${com.gamershub.core.root.RootShell.method}) · everything below is live"
-                com.gamershub.core.shizuku.Shell.available() -> "on · Shizuku · root not granted"
+                rootReady -> "on · root · everything below is live"
+                com.gamershub.core.shizuku.Shell.available() -> "on · Shizuku · root not granted (optional)"
                 else -> "on · no privilege — overlays only"
             },
             checked = engineOn,
             onClick = {
-                api.work {
-                    if (engineOn) {
-                        val report = com.gamershub.core.Engine.stopEverything(context)
-                        api.say(report)
-                    } else {
-                        com.gamershub.core.Engine.start(context, wantRoot = true)
+                if (engineOn) {
+                    // Destructive: show what will be undone before doing it. The
+                    // panel cannot host the full sheet, so it runs the same restore
+                    // and reports the result inline.
+                    api.work {
+                        val rep = com.gamershub.core.Engine.stopEverything(context)
+                        val detail = com.gamershub.core.Engine.lastRestore
+                        api.say(
+                            if (detail != null && detail.failed.isNotEmpty())
+                                "$rep · failed: ${detail.failed.joinToString(", ")}"
+                            else rep
+                        )
+                    }
+                } else {
+                    api.work {
+                        com.gamershub.core.Engine.start(context, wantRoot = false)
                         api.say(com.gamershub.core.Engine.statusLine(context))
                     }
                 }
@@ -940,12 +950,17 @@ private fun GfxPage(api: AxApi) {
             }
         }
         ActionRow(
-            title = "STOP EVERYTHING",
-            subtitle = "kills root shell, Shizuku service, overlays, capture · restores device",
-            button = "ALL OFF"
+            title = "RESTORE PHONE",
+            subtitle = "close overlays · release root + Shizuku · undo every change",
+            button = "RESTORE"
         ) {
             api.work {
-                api.say(com.gamershub.core.Engine.stopEverything(context))
+                val rep = com.gamershub.core.Engine.stopEverything(context)
+                val detail = com.gamershub.core.Engine.lastRestore
+                api.say(
+                    if (detail == null) rep
+                    else "$rep — ${detail.restored.take(4).joinToString(", ")}"
+                )
             }
         }
         SectionLabel("RENDERING")
