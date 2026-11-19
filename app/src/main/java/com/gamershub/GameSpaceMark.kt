@@ -142,7 +142,7 @@ fun GhostMark(
     accentPair: Color = GsEmblem.Orange,
     /** 0 = violet skeleton only, 1 = complete emblem. */
     progress: Float = 1f,
-    studs: Boolean = true,
+    showStuds: Boolean = true,
 ) {
     Canvas(modifier) {
         val w = size.width
@@ -241,7 +241,7 @@ fun GhostMark(
             }
 
             // 7. studs
-            if (studs && p > 0.6f) {
+            if (showStuds && p > 0.6f) {
                 val sp = ((p - 0.6f) / 0.4f).coerceIn(0f, 1f)
                 studs.forEach { (x, y) ->
                     drawCircle(
@@ -373,7 +373,8 @@ fun MarkCore(
 
             // core: brightness tracks real load
             val coreA = (0.30f + 0.70f * l).coerceIn(0f, 1f) * a
-            val (cx, cy) = A.copy(0.500f to 0.560f)
+            val cx = 0.500f
+            val cy = 0.560f
             drawCircle(
                 GsEmblem.Amber.copy(alpha = 0.26f * coreA * pulse),
                 radius = h * 0.14f,
