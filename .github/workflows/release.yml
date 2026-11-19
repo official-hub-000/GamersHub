@@ -127,7 +127,7 @@ jobs:
           if grep -qi "application-debuggable" badging.txt; then
             fail "APK is debuggable - refusing to publish a debug build"
           fi
-          say "OK: com.gamershub 85, not debuggable"
+          say "OK: com.gamershub $EXP_NAME ($EXP_CODE), not debuggable"
 
           # ---------- dex sanity ----------
           say "--- dex entries ---"
