@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -282,7 +283,11 @@ private fun GameSpaceScreen(
             val h = maxHeight
 
             // ---------- top bar ----------
-            GsMark(Modifier.offset(x = w * 0.048f, y = h * 0.068f).size(h * 0.120f))
+            GsMark(
+                modifier = Modifier.offset(x = w * 0.048f, y = h * 0.068f).size(h * 0.132f),
+                energy = if (mem.totalMb > 0) freeMb.toFloat() / mem.totalMb else 0.5f,
+                load = cpu.pct / 100f
+            )
             Column(Modifier.offset(x = w * 0.048f + h * 0.130f, y = h * 0.072f)) {
                 Text(
                     "GAME",
@@ -710,6 +715,22 @@ private fun GsBackdrop(icon: ImageBitmap?, modifier: Modifier) {
                 )
         )
         Canvas(Modifier.fillMaxSize()) { drawRect(dots) }
+
+        // The emblem from the intro, ghosted into the backdrop. This is the piece
+        // that makes the hub read as the same product as the film: the same
+        // chevron, the same violet skeleton, the same circuit traces.
+        GhostMark(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.86f)
+                .aspectRatio(1.12f)
+                .graphicsLayer {
+                    alpha = 0.20f
+                    scaleX = 1.06f
+                    scaleY = 1.06f
+                },
+            accent = accentNow()
+        )
     }
 }
 
@@ -769,38 +790,29 @@ private val ChevShape = GenericShape { size, _ ->
 }
 
 /** Solid angular emblem, matching the chunky reference logo. */
+/**
+ * The hub mark is the intro emblem, not a generic glyph.
+ *
+ * It is fed real numbers, so it behaves like an instrument: the rails carry
+ * actual free memory, the core brightens with actual CPU load, and with the
+ * engine off it draws inert (dashed, dim) rather than animating as if running.
+ */
 @Composable
-private fun GsMark(modifier: Modifier) {
-    val accent = accentNow()
-    val accentPair = accentPairNow()
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val outline = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.50f, h * 0.02f)
-            lineTo(w * 0.97f, h * 0.29f)
-            lineTo(w * 0.86f, h * 0.94f)
-            lineTo(w * 0.14f, h * 0.94f)
-            lineTo(w * 0.03f, h * 0.29f)
-            close()
-        }
-        drawPath(outline, Color(0xFF241516))
-        drawPath(
-            outline,
-            Brush.linearGradient(listOf(accent, accentPair)),
-            style = Stroke(width = h * 0.075f, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        )
-        val bolt = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.58f, h * 0.18f)
-            lineTo(w * 0.33f, h * 0.55f)
-            lineTo(w * 0.49f, h * 0.55f)
-            lineTo(w * 0.40f, h * 0.83f)
-            lineTo(w * 0.70f, h * 0.45f)
-            lineTo(w * 0.53f, h * 0.45f)
-            close()
-        }
-        drawPath(bolt, Color(0xFFFFFFFF))
-    }
+private fun GsMark(
+    modifier: Modifier,
+    energy: Float = 0.5f,
+    load: Float = 0.3f,
+) {
+    MarkCore(
+        modifier = modifier,
+        energy = energy,
+        load = load,
+        active = com.gamershub.core.Engine.isOn ||
+            com.gamershub.core.shizuku.Shell.available() ||
+            com.gamershub.core.root.RootShell.ready(),
+        accent = accentNow(),
+        accentPair = accentPairNow()
+    )
 }
 
 @Composable
