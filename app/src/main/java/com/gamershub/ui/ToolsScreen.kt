@@ -35,6 +35,9 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.PowerOff
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -178,6 +181,73 @@ fun ToolsScreen(
             }
             Spacer(Modifier.height(12.dp))
         }
+
+        // ---- MASTER ENGINE: one switch that owns root, Shizuku and every overlay.
+        SectionHead("MASTER ENGINE")
+        val engineOn = com.gamershub.core.Engine.isOn
+        val rootReady = com.gamershub.core.root.RootShell.ready()
+        ToolRow(
+            icon = Icons.Filled.PowerSettingsNew,
+            title = if (engineOn) "Engine On" else "Engine Off",
+            subtitle = when {
+                !engineOn -> "nothing is running — root, Shizuku, overlays, capture all off"
+                rootReady -> "root active (${com.gamershub.core.root.RootShell.method})"
+                com.gamershub.core.shizuku.Shell.available() -> "Shizuku active · root not granted"
+                else -> "no privilege — overlays only"
+            },
+            active = engineOn,
+            accent = accent,
+            onToggle = {
+                scope.launch {
+                    if (com.gamershub.core.Engine.isOn) {
+                        val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.gamershub.core.Engine.stopEverything(context)
+                        }
+                        Toast.makeText(context, report, Toast.LENGTH_LONG).show()
+                    } else {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.gamershub.core.Engine.start(context, wantRoot = true)
+                        }
+                        Toast.makeText(context, com.gamershub.core.Engine.statusLine(context), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onConfig = {
+                val report = com.gamershub.core.Engine.stopEverything(context)
+                Toast.makeText(context, report, Toast.LENGTH_LONG).show()
+            },
+            configLabel = "ALL OFF"
+        )
+        ToolRow(
+            icon = Icons.Filled.AdminPanelSettings,
+            title = "Root",
+            subtitle = com.gamershub.core.root.RootShell.statusLabel(),
+            active = rootReady,
+            accent = accent,
+            onToggle = {
+                scope.launch {
+                    val okLocal = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.gamershub.core.root.RootShell.acquire(context)
+                    }
+                    Toast.makeText(
+                        context,
+                        if (okLocal) "Root ready · ${com.gamershub.core.root.RootShell.method}"
+                        else com.gamershub.core.root.RootShell.lastError,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            },
+            onConfig = {
+                scope.launch {
+                    val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.gamershub.core.Engine.stopEverything(context)
+                    }
+                    Toast.makeText(context, report, Toast.LENGTH_LONG).show()
+                }
+            },
+            configLabel = "STOP ALL"
+        )
+        Spacer(Modifier.height(14.dp))
 
         SectionHead("OVERLAYS")
         if (on("panel") || on("monitor") || on("crosshair") || on("mapping") || on("mouse")) {
