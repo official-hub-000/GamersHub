@@ -41,7 +41,16 @@ object PrivilegeLadder {
         PERSISTENT_ROOT("root", "persistent root"),
 
         /** Root that was granted for this session and is dropped when the engine stops. */
-        TEMP_ROOT("temp-root", "temporary root — released with the engine")
+        TEMP_ROOT("temp-root", "temporary root — released with the engine"),
+
+        /**
+         * Root that DFRoot bootstrapped this boot.
+         *
+         * Functionally identical to TEMP_ROOT — it does not survive a reboot — but it
+         * is labelled separately because the user should be able to tell "I got this
+         * from the exploit" apart from "I got this from a session hold".
+         */
+        DFROOT_ROOT("dfroot", "root via DFRoot — per boot")
     }
 
     /** One attempt on the ladder, kept so the UI can show what was tried. */
@@ -52,7 +61,10 @@ object PrivilegeLadder {
         val steps: List<Step>,
         val suPath: String?
     ) {
-        val reachedRoot: Boolean get() = rung == Rung.PERSISTENT_ROOT || rung == Rung.TEMP_ROOT
+        val reachedRoot: Boolean
+            get() = rung == Rung.PERSISTENT_ROOT ||
+                rung == Rung.TEMP_ROOT ||
+                rung == Rung.DFROOT_ROOT
         fun summary(): String = "${
             rung.label
         } · ${steps.count { it.ok }}/${steps.size} steps"
@@ -106,7 +118,18 @@ object PrivilegeLadder {
             }
         }
 
-        // ---- rung 4: the bundled temporary provider ----
+        // ---- rung 4: DFRoot bootstrapped this boot ----
+        // If DFRoot already ran, its module started the manager's su daemon, but the
+        // app may still have no grant. Report that honestly and let the user open it.
+        if (dfrootHooked()) {
+            steps += Step(
+                "DFRoot /dev/df",
+                false,
+                "exploit has run this boot, but its su daemon has not granted this app yet"
+            )
+        }
+
+        // ---- rung 5: the bundled temporary provider ----
         // This is a shim over the device's su, not a root exploit: it exists so the
         // app has one stable path to privileged work, and it is deleted with the engine.
         val provider = runCatching { RootShell.provisionTemporary(context) }.getOrDefault(false)
@@ -124,7 +147,14 @@ object PrivilegeLadder {
         return Result(if (shizukuUp) Rung.SHIZUKU else Rung.APP, steps, null)
     }
 
-    private fun rungFor(): Rung = if (RootShell.temporarySession) Rung.TEMP_ROOT else Rung.PERSISTENT_ROOT
+    private fun rungFor(): Rung = when {
+        RootShell.temporarySession -> Rung.TEMP_ROOT
+        dfrootHooked() -> Rung.DFROOT_ROOT
+        else -> Rung.PERSISTENT_ROOT
+    }
+
+    /** True when this boot was patched by DFRoot, whether or not we started it. */
+    private fun dfrootHooked(): Boolean = runCatching { DfRoot.hooked() }.getOrDefault(false)
 
     /**
      * Gives back everything the ladder climbed: drops the root session, deletes the
@@ -135,6 +165,9 @@ object PrivilegeLadder {
      */
     fun descend(context: Context): String {
         val done = mutableListOf<String>()
+        // A DFRoot-bootstrapped su daemon lives outside this app and cannot be stopped
+        // by it, so say that rather than implying a full teardown happened.
+        val wasDfroot = runCatching { DfRoot.hooked() }.getOrDefault(false)
         runCatching {
             RootShell.releaseAll()
             done += "root session"
@@ -147,7 +180,10 @@ object PrivilegeLadder {
             com.gamershub.core.shizuku.Shell.disconnect()
             done += "Shizuku binder"
         }
-        return if (done.isEmpty()) "nothing to release" else "released ${done.joinToString(", ")}"
+        val released = if (done.isEmpty()) "nothing to release" else "released ${done.joinToString(", ")}"
+        // Not a release — a caveat. Kept out of the released list so the engine's
+        // stop report never claims to have stopped something it cannot.
+        return if (wasDfroot) "$released; DFRoot's su daemon runs until reboot" else released
     }
 
     /** Current rung without doing anything. */

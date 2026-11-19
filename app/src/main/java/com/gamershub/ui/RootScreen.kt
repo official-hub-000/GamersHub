@@ -110,6 +110,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     temp = runCatching { com.gamershub.core.root.TempRoot.inspect(context) }.getOrNull(),
                     rung = runCatching { com.gamershub.core.root.PrivilegeLadder.standing() }
                         .getOrDefault(com.gamershub.core.root.PrivilegeLadder.Rung.NONE),
+                    df = runCatching { com.gamershub.core.root.DfRoot.status(context) }.getOrNull(),
                 )
             }
             delay(2500)
@@ -326,8 +327,39 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         )
         Spacer(Modifier.height(16.dp))
 
-        // ---------------------------------------------------------- temporary root
-        SectionHead("TEMPORARY ROOT")
+        // ---------------------------------------------------------- DFRoot
+        SectionHead("TEMPORARY ROOT · DFROOT")
+        DfRootSection(
+            df = snap.df,
+            accent = accent,
+            rootReady = snap.ready,
+            onLaunch = {
+                val ok = com.gamershub.core.root.DfRoot.launch(context)
+                message = if (ok) "Opened DFRoot — run it, then come back" else "Could not open DFRoot"
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            },
+            onAdopt = {
+                scope.launch {
+                    busy = "adopting"
+                    // DFRoot has just started the manager's su daemon; walking the
+                    // ladder now is what turns "it ran" into "this app holds root".
+                    val ladder = withContext(Dispatchers.IO) {
+                        com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+                    }
+                    ladderStep = ladder.steps.joinToString(" · ") { s2 ->
+                        "${if (s2.ok) "✓" else "✗"} ${s2.name}"
+                    }
+                    busy = ""
+                    message = if (ladder.reachedRoot) "Root adopted via DFRoot"
+                              else "DFRoot has not granted su yet — finish the run first"
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+        Spacer(Modifier.height(16.dp))
+
+        // ---------------------------------------------------------- session root
+        SectionHead("SESSION ROOT")
         TempRootSection(
             facts = snap.temp,
             accent = accent,
@@ -522,6 +554,7 @@ private data class Snapshot(
     val temp: com.gamershub.core.root.TempRoot.Facts? = null,
     val rung: com.gamershub.core.root.PrivilegeLadder.Rung =
         com.gamershub.core.root.PrivilegeLadder.Rung.NONE,
+    val df: com.gamershub.core.root.DfRoot.Status? = null,
 )
 
 @Composable
@@ -661,6 +694,7 @@ private fun LadderCard(
     val tempLive = rung == com.gamershub.core.root.PrivilegeLadder.Rung.TEMP_ROOT
     val persistent = rung == com.gamershub.core.root.PrivilegeLadder.Rung.PERSISTENT_ROOT
     val shellOnly = rung == com.gamershub.core.root.PrivilegeLadder.Rung.SHIZUKU
+    val viaDf = rung == com.gamershub.core.root.PrivilegeLadder.Rung.DFROOT_ROOT
 
     Card(borderColor = if (rootReady) accent.copy(alpha = 0.35f) else RomKit.Stroke) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -669,6 +703,7 @@ private fun LadderCard(
                     when {
                         persistent -> "Root held"
                         tempLive -> "Temporary root held"
+                        viaDf -> "Root held · DFRoot"
                         shellOnly -> "Shizuku only"
                         else -> "No root"
                     },
@@ -774,6 +809,127 @@ private fun LayerTile(
     }
 }
 
+/**
+ * DFRoot: temporary root by kernel exploit, integrated rather than reimplemented.
+ *
+ * This card is deliberately specific. It names the KMI it wants, says whether the
+ * device has it, and — when it does not — says so before the user spends a reboot
+ * finding out. That is the whole value of integrating instead of vendoring: the
+ * exploit needs DFRoot's own signed native payload and a per-kernel module, so the
+ * app runs *its* UI and then adopts the root that comes back.
+ *
+ * After DFRoot bootstraps KernelSU, the ladder's `su` rung picks the grant up and the
+ * MANAGER layer above comes alive — superuser policy, module zips, enable/disable.
+ */
+@Composable
+private fun DfRootSection(
+    df: com.gamershub.core.root.DfRoot.Status?,
+    accent: Color,
+    rootReady: Boolean,
+    onLaunch: () -> Unit,
+    onAdopt: () -> Unit
+) {
+    val context = LocalContext.current
+    val kmiOk = df?.kmiSupported == true
+    val installed = df?.installed == true
+    val border = when {
+        rootReady -> accent.copy(alpha = 0.35f)
+        kmiOk -> Color(0x6659A0E0)
+        else -> RomKit.Stroke
+    }
+    Card(borderColor = border) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when {
+                        rootReady -> "Root already held"
+                        !installed -> "DFRoot not installed"
+                        !kmiOk -> "Kernel not supported"
+                        else -> "Ready to run"
+                    },
+                    color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    if (df == null) "checking…"
+                    else "kernel ${df.deviceKmi.major}.${df.deviceKmi.minor} · android ${df.deviceKmi.android}",
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            if (df != null) {
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (kmiOk) Color(0x2239D98A) else Color(0x22E0A33A)
+                        )
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        if (kmiOk) "SUPPORTED" else "NO MODULE",
+                        color = if (kmiOk) Color(0xFF39D98A) else Color(0xFFE0A33A),
+                        fontSize = 9.sp, letterSpacing = 0.8.sp
+                    )
+                }
+            }
+        }
+
+        df?.let { st ->
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniFact("VERSION", st.version.ifBlank { "—" })
+                MiniFact("HOOKED", if (st.hooked) "/dev/df" else "no")
+                MiniFact("BOOTSTRAP", if (st.canBootstrap) "ready" else "missing")
+            }
+            st.notes.forEach { line ->
+                Spacer(Modifier.height(6.dp))
+                Text("· $line", color = GC.TextDim, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(11.dp))
+            BigButton(
+                text = if (installed) "OPEN DFROOT" else "GET DFROOT",
+                onClick = {
+                    if (installed) {
+                        onLaunch()
+                    } else {
+                        // No dead button: send them to the real project page.
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(
+                                        "https://github.com/diabl0w/DFRoot/releases/latest"
+                                    )
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }
+                },
+                primary = kmiOk && !rootReady
+            )
+            // After the run, this is the button that actually matters: DFRoot has
+            // started su; the ladder is what makes the grant belong to this app.
+            if (installed && st.hooked && !rootReady) {
+                Spacer(Modifier.height(8.dp))
+                BigButton(
+                    text = "ADOPT ROOT",
+                    onClick = onAdopt,
+                    primary = true
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "DFRoot gives uid 0 for one boot by patching a kernel page-cache bug, then starts " +
+                "KernelSU's su daemon. GamersHub opens it and adopts the result — the superuser " +
+                "layer above is what it bootstraps. The exploit itself is DFRoot's signed native " +
+                "payload plus one kernel module per KMI, so it runs from there, not from here.",
+            color = GC.TextDim.copy(alpha = 0.85f),
+            fontSize = 11.sp
+        )
+    }
+}
+
 @Composable
 private fun TempRootSection(
     facts: com.gamershub.core.root.TempRoot.Facts?,
@@ -847,10 +1003,9 @@ private fun TempRootSection(
         Spacer(Modifier.height(10.dp))
         // Say the limitation out loud instead of shipping a dead button.
         Text(
-            "GamersHub does not exploit the kernel to gain root. A per-boot root from a " +
-                "kernel bug needs a prebuilt module for your exact kernel, and a wrong offset " +
-                "bricks the phone. If one is already installed on this device, everything " +
-                "above works against it.",
+            "This is the root GamersHub holds itself: a live provider granted for the " +
+                "engine session and dropped when it stops. Use DFRoot above when the device " +
+                "has no per-boot root yet — whatever it bootstraps is adopted here.",
             color = GC.TextDim.copy(alpha = 0.85f),
             fontSize = 11.sp
         )
