@@ -111,6 +111,7 @@ object RomKit {
     /* ---- shape / space ------------------------------------------------------ */
     val R18 = RoundedCornerShape(18.dp)
     val R16 = RoundedCornerShape(16.dp)
+    val R14 = RoundedCornerShape(14.dp)
     val R12 = RoundedCornerShape(12.dp)
     val R10 = RoundedCornerShape(10.dp)
     val RPill = RoundedCornerShape(50)

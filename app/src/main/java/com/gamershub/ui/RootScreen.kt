@@ -86,6 +86,24 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     modules = if (RootShell.ready()) ModuleManager.list() else emptyList(),
                     zygisk = ModuleManager.zygiskEnabled(),
                     diag = if (showDiag && RootShell.ready()) RootShell.diagnose(context) else emptyList(),
+                    grants = if (RootShell.ready()) {
+                        // uid -> (package, label). Cached, because this is called once
+                        // per policy row and each miss is a PackageManager walk.
+                        val pm = context.packageManager
+                        val cache = HashMap<Int, Pair<String, String>?>()
+                        com.gamershub.core.root.SuManager.grants { uid ->
+                            cache.getOrPut(uid) {
+                                runCatching {
+                                    val pkgs = pm.getPackagesForUid(uid) ?: return@runCatching null
+                                    val pkg = pkgs.first()
+                                    val label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                                    pkg to label
+                                }.getOrNull()
+                            }
+                        }
+                    } else emptyList(),
+                    suBackend = com.gamershub.core.root.SuManager.backendName(),
+                    canManageSu = com.gamershub.core.root.SuManager.canManage(),
                 )
             }
             delay(2500)
@@ -257,6 +275,25 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
         // ---------------------------------------------------------- flash
         // ---------------------------------------------------------- store
+        // ---------------------------------------------------------- superuser
+        SectionHead("SUPERUSER")
+        SuSection(
+            grants = snap.grants,
+            backend = snap.suBackend,
+            canManage = snap.canManageSu,
+            rootReady = snap.ready,
+            accent = accent,
+            busy = busy,
+            onAct = { label, block ->
+                scope.launch {
+                    busy = label
+                    message = withContext(Dispatchers.IO) { runCatching(block).getOrElse { it.message ?: "failed" } }
+                    busy = ""
+                }
+            }
+        )
+        Spacer(Modifier.height(16.dp))
+
         SectionHead("MODULE STORE")
         StoreSection(
             accent = accent,
@@ -410,6 +447,9 @@ private data class Snapshot(
     val modules: List<ModuleManager.Module> = emptyList(),
     val zygisk: Boolean? = null,
     val diag: List<String> = emptyList(),
+    val grants: List<com.gamershub.core.root.SuManager.Grant> = emptyList(),
+    val suBackend: String = "",
+    val canManageSu: Boolean = false,
 )
 
 @Composable
@@ -503,6 +543,121 @@ private fun Card(
             .border(1.dp, borderColor, RomKit.R18)
             .padding(14.dp)
     ) { content() }
+}
+
+/**
+ * Superuser: every app that has a root decision, and the switch to change it.
+ *
+ * Reads the policy store of whichever root solution is installed (Magisk's sqlite
+ * table, or KernelSU/APatch through their CLI) rather than keeping its own list.
+ * If it cannot read, it says so — an empty list that means "no access" would look
+ * identical to "no apps have root", and those are very different answers.
+ */
+@Composable
+private fun SuSection(
+    grants: List<com.gamershub.core.root.SuManager.Grant>,
+    backend: String,
+    canManage: Boolean,
+    rootReady: Boolean,
+    accent: Color,
+    busy: String,
+    onAct: (String, suspend () -> String) -> Unit
+) {
+    Card(borderColor = if (rootReady) accent.copy(alpha = 0.35f) else RomKit.Stroke) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (rootReady) "Root manager" else "No root",
+                    color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    when {
+                        !rootReady -> "grant root below and this fills with the real policy list"
+                        !canManage -> "$backend · cannot read the policy store"
+                        else -> "$backend · ${grants.size} app(s) with a decision"
+                    },
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            if (busy.isNotBlank()) Text(busy.uppercase(), color = accent, fontSize = 11.sp)
+        }
+
+        if (grants.isEmpty() && rootReady) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (canManage) "No app has asked for root yet. The first request shows up here."
+                else "This root solution keeps its policy somewhere GamersHub cannot read.",
+                color = GC.TextDim, fontSize = 12.sp
+            )
+        }
+
+        grants.take(24).forEach { g ->
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        g.label.ifBlank { g.pkg.ifBlank { "uid ${g.uid}" } },
+                        color = GC.Text, fontSize = 14.sp, maxLines = 1
+                    )
+                    Text(
+                        listOfNotNull(
+                            "uid ${g.uid}",
+                            g.pkg.takeIf { it.isNotBlank() },
+                            when (g.allowed) {
+                                true -> "allowed"
+                                false -> "denied"
+                                null -> "ask"
+                            }
+                        ).joinToString(" · "),
+                        color = GC.TextDim, fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
+                if (canManage) {
+                    // A real switch, not a button pair: the state is the label.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (g.allowed == true) accent.copy(alpha = 0.20f) else GC.SurfaceHi)
+                            .border(
+                                1.dp,
+                                if (g.allowed == true) accent else RomKit.Stroke,
+                                RoundedCornerShape(50)
+                            )
+                            .clickable {
+                                onAct(if (g.allowed == true) "revoking" else "granting") {
+                                    com.gamershub.core.root.SuManager.setGrant(
+                                        g.uid, allow = g.allowed != true
+                                    )
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            if (g.allowed == true) "ALLOWED" else "ASKING",
+                            color = if (g.allowed == true) accent else GC.TextLo,
+                            fontSize = 10.sp, fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .border(1.dp, RomKit.Stroke, RoundedCornerShape(50))
+                            .clickable {
+                                onAct("forgetting") {
+                                    com.gamershub.core.root.SuManager.forget(g.uid)
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text("FORGET", color = GC.TextDim, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

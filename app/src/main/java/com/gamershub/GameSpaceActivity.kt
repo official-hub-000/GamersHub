@@ -711,6 +711,24 @@ private fun GsBackdrop(icon: ImageBitmap?, modifier: Modifier) {
         )
         Canvas(Modifier.fillMaxSize()) { drawRect(dots) }
 
+        // Two accent shafts, upper-left and lower-right. A single flat tint is what
+        // made the screen read as a black rectangle with widgets on it; light coming
+        // from two corners gives it a room.
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        accentNow().copy(alpha = 0.10f),
+                        Color.Transparent,
+                        Color.Transparent,
+                        accentPairNow().copy(alpha = 0.07f)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset.Infinite
+                )
+            )
+        )
+
         // The emblem from the intro, ghosted into the backdrop. This is the piece
         // that makes the hub read as the same product as the film: the same
         // chevron, the same violet skeleton, the same circuit traces.
@@ -726,6 +744,8 @@ private fun GsBackdrop(icon: ImageBitmap?, modifier: Modifier) {
                 },
             accent = accentNow()
         )
+
+        GsVignette(strength = 0.50f)
     }
 }
 
@@ -872,8 +892,8 @@ private fun AppCard(
     val shape = RoundedCornerShape(artSize * 0.20f)
     Box(
         modifier
-            .clip(shape)
-            .background(GC.InkPanel)
+            .glass(shape = shape, lift = if (primary) 1f else 0.45f, accent = accentNow())
+            .then(if (primary) Modifier.accentBloom(accentNow(), 0.20f) else Modifier)
             .then(
                 if (selected) Modifier.border(1.dp, accentNow().copy(alpha = 0.55f), shape)
                 else Modifier.border(1.dp, Color(0x12FFFFFF), shape)
@@ -1278,6 +1298,27 @@ private fun LaunchBar(
                 if (enabled) Brush.horizontalGradient(listOf(accentNow(), accentPairNow()))
                 else Brush.horizontalGradient(listOf(Color(0xFF2A1E1F), Color(0xFF180F10)))
             )
+            // a bright top rim and a darker foot: the same light direction as the
+            // cards, so the whole console reads as one surface
+            .drawBehind {
+                if (enabled) {
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            listOf(Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.05f))
+                        ),
+                        start = Offset(size.width * 0.08f, 1f),
+                        end = Offset(size.width * 0.92f, 1f),
+                        strokeWidth = 1.5f
+                    )
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0x33000000)),
+                            startY = size.height * 0.55f,
+                            endY = size.height
+                        )
+                    )
+                }
+            }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1421,9 +1462,12 @@ private fun StatBox(
 ) {
     Column(
         modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xB3100809))
-            .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+            .glass(
+                shape = RoundedCornerShape(11.dp),
+                lift = 0.35f,
+                accent = if (good) Color(0xFF39D98A) else accentNow(),
+                tint = Color(0xFF120B0C)
+            )
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -1787,8 +1831,9 @@ private fun ToolTile(
     Column(
         modifier
             .graphicsLayer { scaleX = tileScale; scaleY = tileScale }
-            .clip(RoundedCornerShape(14.dp))
-            .background(tileBg)
+            .glass(shape = RoundedCornerShape(14.dp), lift = if (active) 0.8f else 0.35f, accent = accentNow())
+            .then(if (active) Modifier.accentBloom(accentNow(), 0.16f) else Modifier)
+            .then(if (active) Modifier.edgeLight(accentNow(), 0.55f) else Modifier)
             .border(1.dp, tileEdge, RoundedCornerShape(14.dp))
             .clickable(tileInter, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 12.dp)

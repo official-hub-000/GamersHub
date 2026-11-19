@@ -38,6 +38,7 @@ import com.gamershub.data.InstalledApp
 import com.gamershub.theme.RomKit
 import com.gamershub.theme.GC
 import com.gamershub.theme.LocalAccent
+import com.gamershub.ui.components.EngineSwitch
 import com.gamershub.ui.components.CircleIconButton
 import com.gamershub.ui.components.HeroMark
 import com.gamershub.ui.components.IconChip
@@ -54,7 +55,11 @@ fun LobbyScreen(
     onAddGames: () -> Unit,
     onGameTap: (InstalledApp) -> Unit,
     /** Tapping the emblem (or PLAY ROOM) opens the slide-to-enter sheet. */
-    onGameSpace: () -> Unit
+    onGameSpace: () -> Unit,
+    /** Master engine: whether anything is allowed to run. */
+    engineOn: Boolean,
+    engineChannel: String,
+    onEngineToggle: () -> Unit
 ) {
     val accent = LocalAccent.current
     Column(
@@ -90,6 +95,18 @@ fun LobbyScreen(
                 Text("Here", style = MaterialTheme.typography.labelLarge, color = GC.TextSoft, fontSize = 14.sp)
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+
+        // ---- Master engine ----------------------------------------------------
+        // The one switch that decides whether GamersHub touches the phone. It is in
+        // the lobby header, above the fold, because a user who turned it off has to
+        // be able to see that it is off without opening anything.
+        EngineSwitch(
+            on = engineOn,
+            channel = engineChannel,
+            onToggle = onEngineToggle
+        )
 
         Spacer(Modifier.height(14.dp))
 

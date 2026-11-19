@@ -156,10 +156,20 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         )
     }
     var iconIdx by remember { mutableIntStateOf(com.gamershub.data.AppIcon.current(context)) }
+    // Engine state is read from the Engine object, not stored: the switch must never
+    // be able to claim "on" when the engine is off. `engineTick` forces a recompose
+    // after a toggle so the label and channel refresh.
+    var engineTick by remember { mutableIntStateOf(0) }
 
     GameCornerTheme(if (customAccent != null) com.gamershub.theme.GC.CUSTOM else accentIdx, customAccent) {
         val accent = LocalAccent.current
         var tab by remember { mutableStateOf(Tab.LOBBY) }
+        // Engine state is never cached: read it, with `engineTick` in the key so a
+        // toggle from the panel or the Tools tab refreshes the lobby header too.
+        val engineOnNow = run {
+            engineTick
+            com.gamershub.core.Engine.isOn
+        }
         var sheet by remember { mutableStateOf<SheetState>(SheetState.None) }
 
         var pendingLaunch by remember { mutableStateOf<InstalledApp?>(null) }
@@ -447,6 +457,25 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     onGameSpace = {
                         if (library.isEmpty()) sheet = SheetState.AppSelector
                         else sheet = SheetState.LogoLaunch
+                    },
+                    engineOn = engineOnNow,
+                    engineChannel = when {
+                        !com.gamershub.core.Engine.isOn -> ""
+                        com.gamershub.core.root.RootShell.ready() -> "root"
+                        com.gamershub.core.shizuku.Shell.available() -> "Shizuku"
+                        else -> "app only"
+                    },
+                    onEngineToggle = {
+                        if (com.gamershub.core.Engine.isOn) {
+                            // Destructive: the confirmation sheet lists exactly what
+                            // will be undone before anything is.
+                            sheet = SheetState.EngineOff
+                        } else {
+                            runCatching {
+                                com.gamershub.core.Engine.start(context, wantRoot = false)
+                            }
+                            engineTick++
+                        }
                     }
                 )
                 Tab.TOOLS -> ToolsScreen(
