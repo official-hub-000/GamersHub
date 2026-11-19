@@ -33,7 +33,7 @@ import android.os.Build
  * ## Why the engine is not compiled into this APK
  *
  * The `.ko` files are **not in DFRoot's repository** — `.gitignore` lists
- * `app/src/main/jni/ko/*.ko` — and they are not in its release APK either (v4.7 is
+ * `app/src/main/jni/ko/` (one .ko per KMI) — and they are not in its release APK either (v4.7 is
  * 84 KB). They are built per-KMI by `podman run ghcr.io/ylarod/ddk-min:<kmi>` in
  * DFRoot's `Makefile`, then `.incbin`'d into `libdfroot.so`.
  *
