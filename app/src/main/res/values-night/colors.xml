@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Night variant: the same @color/ic_pad_bg reference resolves to the dark
+         plate, which is how the Auto launcher icon flips with the system. -->
+    <color name="ic_pad_bg">@color/ic_pad_bg_dark</color>
+</resources>

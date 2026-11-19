@@ -25,8 +25,8 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:icon="@mipmap/ic_launcher_pad"
+        android:roundIcon="@mipmap/ic_launcher_pad_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.GamersHub"
@@ -40,13 +40,20 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Launcher entries: one enabled at a time, chosen in Settings ▸ App Icon -->
+        <!-- Launcher entries: one enabled at a time, chosen in Likes ▸ Icon Look.
+             All four are the gamepad from the intro film.
+
+             "Pad — Auto" is the default and the only one that follows the system:
+             its background is @color/ic_pad_bg and its art is @drawable/ic_pad_fg,
+             both of which have -night variants, so the plate turns light in
+             daylight and dark at night with no code running. The other three pin
+             one plate on purpose. -->
         <activity-alias
-            android:name=".IconBolt"
+            android:name=".IconPadAuto"
             android:enabled="true"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_bolt"
-            android:roundIcon="@mipmap/ic_launcher_bolt_round"
+            android:icon="@mipmap/ic_launcher_pad"
+            android:roundIcon="@mipmap/ic_launcher_pad_round"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -56,11 +63,11 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconPad"
+            android:name=".IconPadDark"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher"
-            android:roundIcon="@mipmap/ic_launcher_round"
+            android:icon="@mipmap/ic_launcher_pad_dark"
+            android:roundIcon="@mipmap/ic_launcher_pad_dark_round"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -70,11 +77,11 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconChevron"
+            android:name=".IconPadLight"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_chevron"
-            android:roundIcon="@mipmap/ic_launcher_chevron_round"
+            android:icon="@mipmap/ic_launcher_pad_light"
+            android:roundIcon="@mipmap/ic_launcher_pad_light_round"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -84,11 +91,11 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconGH"
+            android:name=".IconPadMono"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_gh"
-            android:roundIcon="@mipmap/ic_launcher_gh_round"
+            android:icon="@mipmap/ic_launcher_pad_mono"
+            android:roundIcon="@mipmap/ic_launcher_pad_mono_round"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>

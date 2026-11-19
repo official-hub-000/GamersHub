@@ -5,5 +5,16 @@
     <color name="gh_cyber">#22D3EE</color>
     <color name="gh_violet">#8B5CF6</color>
     <color name="gh_magenta">#F472B6</color>
-    <color name="ic_launcher_background">#100F0D</color>
+
+    <!-- Launcher icon plate.
+
+         These three live here and in values-night so the "Auto" icon follows the
+         system light/dark setting without any code running: the launcher asks for
+         @color/ic_pad_bg, and the resource system picks the plate that matches
+         the phone's current mode. -->
+    <color name="ic_launcher_background">#0A0B11</color>
+    <color name="ic_pad_bg_light">#F2F0EB</color>
+    <color name="ic_pad_bg_dark">#0A0B11</color>
+    <!-- Default (non-night) = light plate. -->
+    <color name="ic_pad_bg">@color/ic_pad_bg_light</color>
 </resources>

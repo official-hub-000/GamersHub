@@ -18,7 +18,8 @@ import kotlin.math.hypot
 import kotlin.math.min
 
 /**
- * The floating mark: the GamersHub emblem on a soft breathing light.
+ * The floating mark: the red gamepad on a soft breathing light. Same object as
+ * the launcher icon, so the bubble reads as "this app" at a glance.
  *
  * Deliberately a plain [View] and not a Compose surface. A `ComposeView` has to
  * build a whole composition the moment it is attached to an overlay window
@@ -43,7 +44,7 @@ class EmblemBubbleView(context: Context) : View(context) {
     private val markPx = 44f * density
 
     private val emblem: Bitmap? = runCatching {
-        BitmapFactory.decodeResource(resources, com.gamershub.R.drawable.ic_float_emblem)
+        BitmapFactory.decodeResource(resources, com.gamershub.R.drawable.ic_pad_mark)
     }.getOrNull()?.let { source ->
         runCatching {
             Bitmap.createScaledBitmap(source, markPx.toInt(), markPx.toInt(), true)

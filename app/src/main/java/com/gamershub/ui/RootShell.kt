@@ -156,6 +156,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         )
     }
     var iconIdx by remember { mutableIntStateOf(com.gamershub.data.AppIcon.current(context)) }
+    var themeMode by remember { mutableIntStateOf(com.gamershub.data.ThemeMode.current(context)) }
 
     GameCornerTheme(if (customAccent != null) com.gamershub.theme.GC.CUSTOM else accentIdx, customAccent) {
         val accent = LocalAccent.current
@@ -571,6 +572,16 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             customAccent = colour
                             repo.setAccentIndex(com.gamershub.theme.GC.CUSTOM)
                             repo.setCustomAccent(colour.toArgb())
+                        },
+                        iconTheme = themeMode,
+                        onThemeMode = { m ->
+                            themeMode = m
+                            com.gamershub.data.ThemeMode.set(context, m)
+                            Toast.makeText(
+                                context,
+                                if (m == 0) "Following the system theme" else "${com.gamershub.data.ThemeMode.label(m)} mode on",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         },
                         iconIndex = iconIdx,
                         onIcon = { i ->
@@ -1008,12 +1019,19 @@ internal fun IntroAnimation(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.intro_gamepad),
-                contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            // Decode failed: draw the same red pad the launcher shows, so the
+            // first pixel of the app and the home-screen icon are one object.
+            Box(
+                Modifier.fillMaxSize().background(Color(0xFF05060A)),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(com.gamershub.R.drawable.ic_pad_mark),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(0.62f)
+                )
+            }
         }
 
         Box(

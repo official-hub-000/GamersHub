@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gamepad launcher icon, API 26+. Silhouette only, for launchers that theme icons. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_pad_bg_dark" />
+    <foreground android:drawable="@drawable/ic_pad_fg_mono" />
+    <monochrome android:drawable="@drawable/ic_pad_fg_mono" />
+</adaptive-icon>
