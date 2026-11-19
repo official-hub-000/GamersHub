@@ -205,7 +205,7 @@ fun ToolsScreen(
             onToggle = {
                 scope.launch {
                     val okLocal = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+                        com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true).reachedRoot
                     }
                     Toast.makeText(
                         context,

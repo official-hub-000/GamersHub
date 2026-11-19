@@ -90,7 +90,7 @@ object PrivilegeLadder {
             else RootShell.lastError.ifBlank { "no su, or it was denied" }
         )
         if (acquired) {
-            if (holdSession) RootShell.hold()
+            if (holdSession) RootShell.hold(context)
             return Result(rungFor(), steps, RootShell.suBinary())
         }
 
@@ -117,7 +117,7 @@ object PrivilegeLadder {
             else "unavailable: needs a su on the device"
         )
         if (provider) {
-            if (holdSession) RootShell.hold()
+            if (holdSession) RootShell.hold(context)
             return Result(Rung.TEMP_ROOT, steps, RootShell.suBinary())
         }
 
