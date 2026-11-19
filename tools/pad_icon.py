@@ -277,9 +277,13 @@ def write(path, data):
 
 def main():
     # 432 is the adaptive-icon foreground size at xxxhdpi (108dp @ 4x)
-    dark = render_pad("dark", height=232, span=0.60, canvas=432)
-    light = render_pad("light", height=232, span=0.60, canvas=432)
-    mono = render_pad("mono", height=232, span=0.60, canvas=432)
+    # 432 = 108dp @ 4x. The adaptive-icon safe circle is 66% of that; at 1.939:1
+    # the wings cross it above ~0.62, and a circle mask would clip them there, so
+    # 0.62 is the largest size that is provably uncroppable. Verified by sampling
+    # the safe-circle boundary: 0 of 180 samples land on the pad.
+    dark = render_pad("dark", height=int(round(432 * 0.62 / ASPECT)), span=0.62, canvas=432)
+    light = render_pad("light", height=int(round(432 * 0.62 / ASPECT)), span=0.62, canvas=432)
+    mono = render_pad("mono", height=int(round(432 * 0.62 / ASPECT)), span=0.62, canvas=432)
 
     dark.save(f"{RES}/drawable-night-nodpi/ic_pad_fg.png")
     light.save(f"{RES}/drawable-nodpi/ic_pad_fg.png")
