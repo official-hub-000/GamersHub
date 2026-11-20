@@ -39,8 +39,8 @@ validated with `openssl x509` and `openssl verify` during development.
 
 **Source:** https://github.com/diabl0w/DFRoot (v4.7, commit as of 2026-10-22)
 **Licence:** GPL-2.0 (see `licenses/DFRoot-LICENSE.txt`). Verbatim, except one line in
-`ExploitRunner.java` that referenced DFRoot's own `BuildConfig` and now reports the
-GamersHub version. The per-KMI kernel modules (`lkm/dfroot.c`) are built in CI from the
+`ExploitRunner.java`/`IReporter.java`, which are ported to Kotlin verbatim (same logic,
+one deliberate change: missing IpSecManager on API 26–27 is reported instead of thrown). The per-KMI kernel modules (`lkm/dfroot.c`) are built in CI from the
 vendored source inside the same `ghcr.io/ylarod/ddk-min:<kmi>` containers DFRoot uses,
 and compiled into `libdfroot.so`; they are never committed (`app/src/main/jni/ko/` is a
 build artifact).
