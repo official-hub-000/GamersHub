@@ -132,11 +132,12 @@ object DfRoot {
         // DFRoot's bootstrap stages libksud.so out of the manager's nativeLibraryDir,
         // so a manager without it cannot be started by the exploit.
         val canBootstrap = runCatching {
-            val info = context.packageManager
+            // PackageInfo.applicationInfo is ApplicationInfo? as of API 35.
+            val dir = context.packageManager
                 .getPackageInfo("com.tiann.kernelsu", 0)
                 .applicationInfo
-            info.nativeLibraryDir != null &&
-                java.io.File(info.nativeLibraryDir, "libksud.so").exists()
+                ?.nativeLibraryDir
+            dir != null && java.io.File(dir, "libksud.so").exists()
         }.getOrDefault(false)
 
         val notes = buildList {
