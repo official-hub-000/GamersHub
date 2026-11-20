@@ -11,6 +11,25 @@ import android.widget.Toast
 import rikka.shizuku.Shizuku
 
 /**
+ * The shell surface every privileged feature in the app talks to.
+ *
+ * Three transports answer it, in descending order of reach:
+ *
+ *  1. **root** ([com.gamershub.core.root.RootShell]) — uid 0.
+ *  2. **Wireless debugging** ([com.gamershub.core.adb.WirelessAdb]) — uid 2000 via
+ *     the phone's own `adbd`. This is the same uid Shizuku's server runs as, so it is
+ *     a genuine replacement for Shizuku, not a weaker mode: `settings`, `cmd`,
+ *     `dumpsys`, `wm`, `am` and `pm` all answer identically.
+ *  3. **Shizuku** ([rikka.shizuku.Shizuku]) — uid 2000 via a binder.
+ *
+ * Wireless debugging is tried before Shizuku on purpose. If the user has both, the
+ * direct connection involves one fewer moving part and keeps working when the
+ * Shizuku app is force-stopped or its binder is recycled. A user who has neither
+ * still gets the same honest "needs a shell" answer from every call site.
+ *
+ * Call sites never choose a transport. They call [exec]/[ok]/[available] and the
+ * dispatcher decides, which is what keeps the feature set identical across all three.
+ *
  * Shizuku-backed shell with a real connection state machine.
  *
  * - [ensure] binds the user service as soon as the permission exists and is
@@ -65,19 +84,21 @@ object Shell {
     }
 
     fun running(): Boolean = try {
-        Shizuku.pingBinder()
+        com.gamershub.core.adb.WirelessAdb.connected() || Shizuku.pingBinder()
     } catch (_: Throwable) {
-        false
+        com.gamershub.core.adb.WirelessAdb.connected()
     }
 
     fun granted(): Boolean = try {
-        // A granted root shell means privileged work is possible whether or not
-        // Shizuku is installed, running, or authorised.
+        // Any of the three transports being live means privileged work is possible,
+        // whether or not Shizuku is installed, running, or authorised.
         com.gamershub.core.root.RootShell.ready() ||
+            com.gamershub.core.adb.WirelessAdb.connected() ||
             (Shizuku.pingBinder() &&
                 Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     } catch (_: Throwable) {
-        com.gamershub.core.root.RootShell.ready()
+        com.gamershub.core.root.RootShell.ready() ||
+            com.gamershub.core.adb.WirelessAdb.connected()
     }
 
     fun connected(): Boolean = binder != null
@@ -164,6 +185,15 @@ object Shell {
         if (com.gamershub.core.root.RootShell.ready()) {
             com.gamershub.core.root.RootShell.run(command)?.let { out ->
                 record("$ " + command.take(70) + "  →  root")
+                return out
+            }
+        }
+        // Wireless debugging next: the same uid 2000 as Shizuku, reached directly.
+        // One fewer hop than the binder, and it keeps working when Shizuku's server
+        // has been force-stopped.
+        if (com.gamershub.core.adb.WirelessAdb.connected()) {
+            com.gamershub.core.adb.WirelessAdb.exec(appContext ?: return null, command)?.let { out ->
+                record("$ " + command.take(70) + "  →  wireless adb")
                 return out
             }
         }
@@ -270,12 +300,15 @@ object Shell {
 
     /** True when privileged commands can actually run right now. */
     fun available(): Boolean = granted() || binder != null ||
-        com.gamershub.core.root.RootShell.ready()
+        com.gamershub.core.root.RootShell.ready() ||
+        com.gamershub.core.adb.WirelessAdb.connected()
 
     /** Human-readable reason for the last failure (drives the UI messages). */
     fun reason(): String = when {
         com.gamershub.core.root.RootShell.ready() -> lastError.ifBlank { "root rejected the command" }
-        !running() -> "Shizuku service is not running (and no root)"
+        com.gamershub.core.adb.WirelessAdb.connected() ->
+            lastError.ifBlank { "wireless debugging rejected the command" }
+        !running() -> "No shell: turn on wireless debugging, or start Shizuku"
         !granted() -> "GamersHub is not authorised in Shizuku"
         else -> lastError.ifBlank { "shell rejected the command" }
     }

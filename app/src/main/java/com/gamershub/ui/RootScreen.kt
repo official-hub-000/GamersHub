@@ -73,6 +73,9 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
     var showDiag by remember { mutableStateOf(false) }
     // Which rungs of the privilege ladder answered on the last attempt, verbatim.
     var ladderStep by remember { mutableStateOf("") }
+    // This screen hosts its own dialogs; the wireless sheet lives here so a user who
+    // lands on the ROOT tab can pair without hunting for the Power Up spot.
+    var showWireless by remember { mutableStateOf(false) }
 
     // Live snapshot: root state and module list. Refreshed on a timer so a change
     // made in the Magisk app shows up here without a restart.
@@ -111,6 +114,8 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     rung = runCatching { com.gamershub.core.root.PrivilegeLadder.standing() }
                         .getOrDefault(com.gamershub.core.root.PrivilegeLadder.Rung.NONE),
                     df = runCatching { com.gamershub.core.root.DfRoot.status(context) }.getOrNull(),
+                    wireless = com.gamershub.core.adb.WirelessAdb.connected(),
+                    wirelessLabel = com.gamershub.core.adb.WirelessAdb.statusLabel(),
                 )
             }
             delay(2500)
@@ -327,6 +332,16 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         )
         Spacer(Modifier.height(16.dp))
 
+        // ---------------------------------------------------------- wireless adb
+        SectionHead("SHELL · WIRELESS DEBUGGING")
+        WirelessSection(
+            connected = snap.wireless,
+            label = snap.wirelessLabel,
+            accent = accent,
+            onOpen = { showWireless = true }
+        )
+        Spacer(Modifier.height(16.dp))
+
         // ---------------------------------------------------------- DFRoot
         SectionHead("TEMPORARY ROOT · DFROOT")
         DfRootSection(
@@ -536,6 +551,70 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
         Spacer(Modifier.height(110.dp))
     }
+
+    // Hosted here (rather than in the lobby shell) so a user already on the ROOT tab
+    // can pair without leaving the screen they were reading.
+    if (showWireless) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showWireless = false }) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RomKit.R18)
+                    .background(RomKit.Panel)
+            ) {
+                com.gamershub.ui.sheets.WirelessAdbSheet(onDismiss = { showWireless = false })
+            }
+        }
+    }
+}
+
+/**
+ * The wireless-debugging card.
+ *
+ * Deliberately sat above the root sections: it is the path that needs nothing else
+ * installed, so for a user with no Shizuku and no root it is the only working option
+ * on this screen.
+ */
+@Composable
+private fun WirelessSection(
+    connected: Boolean,
+    label: String,
+    accent: Color,
+    onOpen: () -> Unit
+) {
+    Card(borderColor = if (connected) accent.copy(alpha = 0.35f) else RomKit.Stroke) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (connected) "Shell via wireless debugging" else "Wireless debugging",
+                    color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    if (connected) "uid 2000 — the same user as Shizuku"
+                    else "No Shizuku? Pair with a code and get the same shell",
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (connected) Color(0x2239D98A) else Color(0x22E0A33A))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    if (connected) "LIVE" else label.uppercase(),
+                    color = if (connected) Color(0xFF39D98A) else Color(0xFFE0A33A),
+                    fontSize = 9.sp, letterSpacing = 0.8.sp
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        BigButton(
+            text = if (connected) "MANAGE CONNECTION" else "PAIR & CONNECT",
+            onClick = onOpen,
+            primary = !connected
+        )
+    }
 }
 
 private data class Snapshot(
@@ -555,6 +634,8 @@ private data class Snapshot(
     val rung: com.gamershub.core.root.PrivilegeLadder.Rung =
         com.gamershub.core.root.PrivilegeLadder.Rung.NONE,
     val df: com.gamershub.core.root.DfRoot.Status? = null,
+    val wireless: Boolean = false,
+    val wirelessLabel: String = "",
 )
 
 @Composable

@@ -1148,7 +1148,9 @@ private fun ValueBox(value: String, suffix: String, modifier: Modifier = Modifie
 fun ActivationSheet(
     envLevel: Int,
     shizukuActive: Boolean,
+    wirelessActive: Boolean = false,
     onOpenShizuku: () -> Unit,
+    onOpenWireless: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1245,6 +1247,52 @@ fun ActivationSheet(
                         }
                         Text(
                             if (shizukuActive) "Activated" else "Activate",
+                            style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 13.sp
+                        )
+                    }
+                }
+                // ---------------------------------------------------------------- WiFi door
+                // The Shizuku-free path, given equal billing on purpose: it reaches the
+                // same uid 2000 with no second app, so hiding it below the fold would
+                // mean most users never learn they can skip Shizuku entirely.
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RomKit.R12)
+                        .background(RomKit.Panel2)
+                        .border(1.dp, RomKit.Stroke, RomKit.R12)
+                        .clickable(onClick = onOpenWireless)
+                        .padding(15.dp)
+                ) {
+                    IconChip(GhIcons.Wifi, size = 44)
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Wireless debugging",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = GC.Text, fontSize = 17.sp
+                        )
+                        Text(
+                            if (wirelessActive) "Connected · uid 2000"
+                            else "No Shizuku needed — same shell",
+                            color = GC.TextDim, fontSize = 11.sp
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (wirelessActive) accent.copy(alpha = 0.2f) else GC.Bg)
+                            .padding(horizontal = 13.dp, vertical = 7.dp)
+                    ) {
+                        if (wirelessActive) {
+                            AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(5.dp))
+                        }
+                        Text(
+                            if (wirelessActive) "Live" else "Pair",
                             style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 13.sp
                         )
                     }

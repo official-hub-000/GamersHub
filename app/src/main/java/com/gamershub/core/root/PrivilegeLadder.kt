@@ -80,7 +80,17 @@ object PrivilegeLadder {
         val steps = mutableListOf<Step>()
 
         // ---- rung 0: is there a shell at all? ----
-        val shizukuUp = runCatching { com.gamershub.core.shizuku.Shell.available() }.getOrDefault(false)
+        // Wireless debugging first: it is the same uid 2000 as Shizuku, with no second
+        // app in the chain. Reported as its own step so the panel says which answered.
+        val wirelessUp = com.gamershub.core.adb.WirelessAdb.connected()
+        steps += Step(
+            "wireless debugging",
+            wirelessUp,
+            if (wirelessUp) "uid 2000 via adbd on port ${com.gamershub.core.adb.WirelessAdb.shellPort}"
+            else "not connected — Shizuku or a pairing code"
+        )
+        val shizukuUp = wirelessUp ||
+            runCatching { com.gamershub.core.shizuku.Shell.available() }.getOrDefault(false)
         steps += Step("Shizuku binder", shizukuUp, if (shizukuUp) "shell reachable" else "not granted")
 
         if (!wantRoot) {
@@ -180,6 +190,15 @@ object PrivilegeLadder {
             com.gamershub.core.shizuku.Shell.disconnect()
             done += "Shizuku binder"
         }
+        // Only the socket is dropped; the device keeps this app authorised, so the
+        // next connect needs no pairing code. Tearing down the identity here would
+        // mean every engine toggle forces the user to pair again.
+        runCatching {
+            if (com.gamershub.core.adb.WirelessAdb.connected()) {
+                com.gamershub.core.adb.WirelessAdb.disconnect()
+                done += "wireless debugging link"
+            }
+        }
         val released = if (done.isEmpty()) "nothing to release" else "released ${done.joinToString(", ")}"
         // Not a release — a caveat. Kept out of the released list so the engine's
         // stop report never claims to have stopped something it cannot.
@@ -189,6 +208,7 @@ object PrivilegeLadder {
     /** Current rung without doing anything. */
     fun standing(): Rung = when {
         RootShell.ready() -> rungFor()
+        com.gamershub.core.adb.WirelessAdb.connected() -> Rung.WIRELESS
         runCatching { com.gamershub.core.shizuku.Shell.available() }.getOrDefault(false) -> Rung.SHIZUKU
         else -> Rung.APP
     }

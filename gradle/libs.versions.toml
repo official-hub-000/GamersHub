@@ -13,6 +13,7 @@ coroutines = "1.9.0"
 kotlinxSerialization = "1.7.3"
 okhttp = "4.12.0"
 shizuku = "13.1.5"
+bouncycastle = "1.81"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,10 @@ squareup-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref
 
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
+
+# ADB pairing (wireless debugging) needs AES-GCM, HKDF-SHA256 and SHA-256; ADB's
+# pairing protocol is not reachable with JCA alone, so the crypto comes from here.
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

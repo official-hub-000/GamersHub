@@ -124,6 +124,9 @@ sealed interface SheetState {
     data class Permission(val index: Int) : SheetState
     data object DisplayTuning : SheetState
     data object Activation : SheetState
+
+    /** Wireless-debugging pairing: the Shizuku-free shell setup screen. */
+    data object Wireless : SheetState
     data object GameReady : SheetState
     data object Ping : SheetState
     data object Gyro : SheetState
@@ -334,6 +337,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             "display" -> SheetState.DisplayTuning
             "presets" -> SheetState.Presets
             "activation" -> SheetState.Activation
+            "wireless" -> SheetState.Wireless
             "settings" -> SheetState.Settings
             "record" -> SheetState.Record
             "live" -> SheetState.Live
@@ -666,9 +670,14 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     SheetState.DisplayTuning -> com.gamershub.ui.sheets.DisplayTuningSheet(
                         onDismiss = { sheet = SheetState.None }
                     )
+                    SheetState.Wireless -> com.gamershub.ui.sheets.WirelessAdbSheet(
+                        onDismiss = { sheet = SheetState.None }
+                    )
                     SheetState.Activation -> com.gamershub.ui.sheets.ActivationSheet(
                         envLevel = envLevel,
                         shizukuActive = hasShizuku(),
+                        wirelessActive = com.gamershub.core.adb.WirelessAdb.connected(),
+                        onOpenWireless = { sheet = SheetState.Wireless },
                         onOpenShizuku = {
                             runCatching {
                                 val intent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")

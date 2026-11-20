@@ -117,6 +117,21 @@ object Engine {
             lastLadder = ladder
         }
         runCatching { Shell.ensure(context) }
+
+        // Re-attach the wireless-debugging shell when the user turned it on for this
+        // engine before. This is a reconnect, never an enable: GamersHub does not have
+        // (and does not ask for) the permission to switch wireless debugging on, so a
+        // device where the user turned it off is left exactly as it is.
+        runCatching {
+            if (context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+                    .getBoolean("wireless_enabled", false)
+            ) {
+                com.gamershub.core.adb.WirelessAdb.attached(context)
+                if (!com.gamershub.core.adb.WirelessAdb.connected()) {
+                    com.gamershub.core.adb.WirelessAdb.connect(context)
+                }
+            }
+        }
         return statusLine(context)
     }
 

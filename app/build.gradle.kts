@@ -14,8 +14,8 @@ android {
         applicationId = "com.gamershub"
         minSdk = 26
         targetSdk = 34
-        versionCode = 101
-        versionName = "6.28.1"
+        versionCode = 102
+        versionName = "6.29.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -110,4 +110,9 @@ dependencies {
 
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+
+    // Wireless-debugging ADB client (vendored under io.github.muntashirakon.adb,
+    // Apache-2.0 arm of its dual licence) needs pairing crypto.
+    implementation(libs.bouncycastle.prov)
+
 }
