@@ -132,6 +132,20 @@ object Engine {
                 }
             }
         }
+
+        // Bring the shell daemon back if the user had one. This is what makes the
+        // privilege survive a restart of the app rather than of the phone: the daemon
+        // may still be running from the last session, and if it is not, the transport
+        // that is live right now can start it again.
+        runCatching {
+            com.gamershub.core.adb.ShellDaemon.attached(context)
+            if (!com.gamershub.core.adb.ShellDaemon.ping() &&
+                context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+                    .getBoolean("daemon_enabled", false)
+            ) {
+                com.gamershub.core.adb.ShellDaemon.start(context)
+            }
+        }
         return statusLine(context)
     }
 
@@ -221,6 +235,8 @@ object Engine {
         !isOn -> "Engine off — phone restored"
         Channel.kind() == Channel.Kind.ROOT ->
             "Engine on · root · ${RootShell.method}"
+        Channel.kind() == Channel.Kind.DAEMON ->
+            "Engine on · GamersHub daemon (uid 2000) · independent of ADB"
         Channel.kind() == Channel.Kind.WIRELESS ->
             "Engine on · wireless debugging (shell subset) · root adds ${missingFromShizuku()}"
         Channel.kind() == Channel.Kind.SHIZUKU ->

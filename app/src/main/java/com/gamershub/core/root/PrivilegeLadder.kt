@@ -46,6 +46,15 @@ object PrivilegeLadder {
          */
         WIRELESS("wireless", "wireless debugging — uid 2000, no Shizuku needed"),
 
+        /**
+         * The in-app daemon ([com.gamershub.core.adb.ShellDaemon]).
+         *
+         * Same uid 2000 as Shizuku, in a process of its own rather than a live ADB
+         * connection — so it keeps answering after wireless debugging is switched off.
+         * This is the rung that behaves like a running Shizuku server.
+         */
+        DAEMON("daemon", "GamersHub daemon — uid 2000, survives ADB being turned off"),
+
         /** Root through a manager that persists across reboots. */
         PERSISTENT_ROOT("root", "persistent root"),
 
@@ -91,6 +100,13 @@ object PrivilegeLadder {
         // ---- rung 0: is there a shell at all? ----
         // Wireless debugging first: it is the same uid 2000 as Shizuku, with no second
         // app in the chain. Reported as its own step so the panel says which answered.
+        val daemonUp = com.gamershub.core.adb.ShellDaemon.alive
+        steps += Step(
+            "shell daemon",
+            daemonUp,
+            if (daemonUp) com.gamershub.core.adb.ShellDaemon.statusLine()
+            else "not started — start it once over ADB, then it is independent"
+        )
         val wirelessUp = com.gamershub.core.adb.WirelessAdb.connected()
         steps += Step(
             "wireless debugging",
@@ -98,7 +114,7 @@ object PrivilegeLadder {
             if (wirelessUp) "uid 2000 via adbd on port ${com.gamershub.core.adb.WirelessAdb.shellPort}"
             else "not connected — Shizuku or a pairing code"
         )
-        val shizukuUp = wirelessUp ||
+        val shizukuUp = daemonUp || wirelessUp ||
             runCatching { com.gamershub.core.shizuku.Shell.available() }.getOrDefault(false)
         steps += Step("Shizuku binder", shizukuUp, if (shizukuUp) "shell reachable" else "not granted")
 
@@ -199,6 +215,12 @@ object PrivilegeLadder {
             com.gamershub.core.shizuku.Shell.disconnect()
             done += "Shizuku binder"
         }
+        // The daemon is a process of ours, so unlike DFRoot's su daemon it really can
+        // be stopped — and must be, or "engine off" would leave uid 2000 running.
+        runCatching {
+            com.gamershub.core.adb.ShellDaemon.stop(context)
+            done += "shell daemon"
+        }
         // Only the socket is dropped; the device keeps this app authorised, so the
         // next connect needs no pairing code. Tearing down the identity here would
         // mean every engine toggle forces the user to pair again.
@@ -217,6 +239,7 @@ object PrivilegeLadder {
     /** Current rung without doing anything. */
     fun standing(): Rung = when {
         RootShell.ready() -> rungFor()
+        com.gamershub.core.adb.ShellDaemon.alive -> Rung.DAEMON
         com.gamershub.core.adb.WirelessAdb.connected() -> Rung.WIRELESS
         runCatching { com.gamershub.core.shizuku.Shell.available() }.getOrDefault(false) -> Rung.SHIZUKU
         else -> Rung.APP

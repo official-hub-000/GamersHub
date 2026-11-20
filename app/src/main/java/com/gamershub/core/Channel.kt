@@ -30,7 +30,7 @@ object Channel {
      * capabilities, but the user needs to see which one is holding the shell, and the
      * fix differs when one drops.
      */
-    enum class Kind { NONE, WIRELESS, SHIZUKU, ROOT }
+    enum class Kind { NONE, DAEMON, WIRELESS, SHIZUKU, ROOT }
 
     /** What a channel can actually reach. */
     enum class Capability {
@@ -81,6 +81,14 @@ object Channel {
             Capability.SETTINGS_WRITE,
             Capability.PACKAGE_CONTROL,
         ),
+        // The in-app daemon is the same uid 2000, so the same capability set — but it
+        // is listed separately because it is the one that keeps answering with ADB
+        // switched off, and that is worth being able to see in the panel.
+        Kind.DAEMON to setOf(
+            Capability.SHELL,
+            Capability.SETTINGS_WRITE,
+            Capability.PACKAGE_CONTROL,
+        ),
         // Root reaches everything.
         Kind.ROOT to Capability.entries.toSet(),
     )
@@ -88,6 +96,7 @@ object Channel {
     /** Current channel, evaluated against live state rather than a cached flag. */
     fun kind(): Kind = when {
         RootShell.ready() -> Kind.ROOT
+        com.gamershub.core.adb.ShellDaemon.alive -> Kind.DAEMON
         com.gamershub.core.adb.WirelessAdb.connected() -> Kind.WIRELESS
         Shell.available() -> Kind.SHIZUKU
         else -> Kind.NONE
@@ -95,6 +104,7 @@ object Channel {
 
     fun label(): String = when (kind()) {
         Kind.ROOT -> "root"
+        Kind.DAEMON -> "GamersHub daemon"
         Kind.WIRELESS -> "wireless debugging"
         Kind.SHIZUKU -> "Shizuku"
         Kind.NONE -> "no privilege"
@@ -108,8 +118,9 @@ object Channel {
         val k = kind()
         return Capability.entries.filter { !can(it) }.map { cap ->
             cap to when (k) {
-                Kind.NONE -> "needs wireless debugging, Shizuku or root"
-                Kind.WIRELESS, Kind.SHIZUKU -> "needs root — the shell user cannot reach this"
+                Kind.NONE -> "needs the daemon, wireless debugging, Shizuku or root"
+                Kind.DAEMON, Kind.WIRELESS, Kind.SHIZUKU ->
+                    "needs root — the shell user cannot reach this"
                 Kind.ROOT -> "unavailable"
             }
         }
@@ -126,6 +137,7 @@ object Channel {
         if (!Engine.isOn && !Engine.isStopping) return null
         return when (kind()) {
             Kind.ROOT -> RootShell.run(command, timeoutMs)
+            Kind.DAEMON -> Shell.exec(command)     // Shell routes to the daemon socket
             Kind.WIRELESS -> Shell.exec(command)   // Shell routes to the live wireless link
             Kind.SHIZUKU -> Shell.exec(command)
             Kind.NONE -> null

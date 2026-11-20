@@ -116,6 +116,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     df = runCatching { com.gamershub.core.root.DfRoot.status(context) }.getOrNull(),
                     wireless = com.gamershub.core.adb.WirelessAdb.connected(),
                     wirelessLabel = com.gamershub.core.adb.WirelessAdb.statusLabel(),
+                    daemon = com.gamershub.core.adb.ShellDaemon.alive,
                 )
             }
             delay(2500)
@@ -336,6 +337,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         SectionHead("SHELL · WIRELESS DEBUGGING")
         WirelessSection(
             connected = snap.wireless,
+            daemon = snap.daemon,
             label = snap.wirelessLabel,
             accent = accent,
             onOpen = { showWireless = true }
@@ -578,6 +580,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 @Composable
 private fun WirelessSection(
     connected: Boolean,
+    daemon: Boolean,
     label: String,
     accent: Color,
     onOpen: () -> Unit
@@ -586,12 +589,19 @@ private fun WirelessSection(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (connected) "Shell via wireless debugging" else "Wireless debugging",
+                    when {
+                        daemon -> "Shell daemon running"
+                        connected -> "Shell via wireless debugging"
+                        else -> "Wireless debugging"
+                    },
                     color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    if (connected) "uid 2000 — the same user as Shizuku"
-                    else "No Shizuku? Pair with a code and get the same shell",
+                    when {
+                        daemon -> "uid 2000 · keeps working with ADB off"
+                        connected -> "uid 2000 — the same user as Shizuku"
+                        else -> "No Shizuku? Pair with a code and get the same shell"
+                    },
                     color = GC.TextDim, fontSize = 12.sp
                 )
             }
@@ -602,7 +612,11 @@ private fun WirelessSection(
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             ) {
                 Text(
-                    if (connected) "LIVE" else label.uppercase(),
+                    when {
+                        daemon -> "DAEMON"
+                        connected -> "LIVE"
+                        else -> label.uppercase()
+                    },
                     color = if (connected) Color(0xFF39D98A) else Color(0xFFE0A33A),
                     fontSize = 9.sp, letterSpacing = 0.8.sp
                 )
@@ -636,6 +650,7 @@ private data class Snapshot(
     val df: com.gamershub.core.root.DfRoot.Status? = null,
     val wireless: Boolean = false,
     val wirelessLabel: String = "",
+    val daemon: Boolean = false,
 )
 
 @Composable

@@ -174,6 +174,7 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
                 Text(
                     when (channel) {
                         Channel.Kind.ROOT -> "root — full restore"
+                        Channel.Kind.DAEMON -> "daemon — shell-level restore"
                         Channel.Kind.WIRELESS -> "wireless debugging — shell-level restore"
                         Channel.Kind.SHIZUKU -> "Shizuku — shell-level restore"
                         Channel.Kind.NONE -> "none — app-level restore only"
