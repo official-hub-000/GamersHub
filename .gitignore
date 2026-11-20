@@ -20,3 +20,6 @@ google_drive/
 # Python byproducts from tools/
 __pycache__/
 *.pyc
+
+# DFRoot per-KMI kernel modules — built in CI (ddk-min containers), never committed
+app/src/main/jni/ko/

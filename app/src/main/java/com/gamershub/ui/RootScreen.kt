@@ -27,6 +27,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -365,11 +368,6 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
             df = snap.df,
             accent = accent,
             rootReady = snap.ready,
-            onLaunch = {
-                val ok = com.gamershub.core.root.DfRoot.launch(context)
-                message = if (ok) "Opened DFRoot — run it, then come back" else "Could not open DFRoot"
-                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            },
             onAdopt = {
                 scope.launch {
                     busy = "adopting"
@@ -1169,12 +1167,27 @@ private fun DfRootSection(
     df: com.gamershub.core.root.DfRoot.Status?,
     accent: Color,
     rootReady: Boolean,
-    onLaunch: () -> Unit,
     onAdopt: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val kmiOk = df?.kmiSupported == true
-    val installed = df?.installed == true
+    val payloadOk = remember { com.gamershub.core.root.DfRootRunner.payloadPresent(context) }
+    var managers by remember { mutableStateOf<List<com.gamershub.core.root.DfRootRunner.Manager>>(emptyList()) }
+    var scanned by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(com.gamershub.core.root.DfRootRunner.selected(context)) }
+    var running by remember { mutableStateOf(false) }
+    var log by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            com.gamershub.core.root.DfRootRunner.candidates(context)
+        }.also {
+            managers = it
+            scanned = true
+        }
+    }
+
     val border = when {
         rootReady -> accent.copy(alpha = 0.35f)
         kmiOk -> Color(0x6659A0E0)
@@ -1186,8 +1199,9 @@ private fun DfRootSection(
                 Text(
                     when {
                         rootReady -> "Root already held"
-                        !installed -> "DFRoot not installed"
+                        !payloadOk -> "Payload missing from this build"
                         !kmiOk -> "Kernel not supported"
+                        scanned && managers.isEmpty() && selected == null -> "Needs an SU manager"
                         else -> "Ready to run"
                     },
                     color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
@@ -1198,60 +1212,99 @@ private fun DfRootSection(
                     color = GC.TextDim, fontSize = 12.sp
                 )
             }
-            if (df != null) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (kmiOk) Color(0x2239D98A) else Color(0x22E0A33A)
-                        )
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        if (kmiOk) "SUPPORTED" else "NO MODULE",
-                        color = if (kmiOk) Color(0xFF39D98A) else Color(0xFFE0A33A),
-                        fontSize = 9.sp, letterSpacing = 0.8.sp
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (kmiOk) Color(0x2239D98A) else Color(0x22E0A33A)
                     )
-                }
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    if (kmiOk) "SUPPORTED" else "NO MODULE",
+                    color = if (kmiOk) Color(0xFF39D98A) else Color(0xFFE0A33A),
+                    fontSize = 9.sp, letterSpacing = 0.8.sp
+                )
             }
         }
 
         df?.let { st ->
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MiniFact("VERSION", st.version.ifBlank { "—" })
+                MiniFact("PAYLOAD", if (payloadOk) "present" else "missing")
+                MiniFact("KMI", st.deviceKmi.label)
                 MiniFact("HOOKED", if (st.hooked) "/dev/df" else "no")
-                MiniFact("BOOTSTRAP", if (st.canBootstrap) "ready" else "missing")
             }
-            st.notes.forEach { line ->
+
+            // SU manager picker — the exploit can only bootstrap an installed
+            // manager that carries libksud.so, so this is a real choice, not a nicety.
+            if (!rootReady) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "SU MANAGER",
+                    color = GC.TextDim, fontSize = 10.sp, letterSpacing = 1.2.sp
+                )
                 Spacer(Modifier.height(6.dp))
-                Text("· $line", color = GC.TextDim, fontSize = 12.sp)
-            }
-            Spacer(Modifier.height(11.dp))
-            BigButton(
-                text = if (installed) "OPEN DFROOT" else "GET DFROOT",
-                onClick = {
-                    if (installed) {
-                        onLaunch()
-                    } else {
-                        // No dead button: send them to the real project page.
-                        runCatching {
-                            context.startActivity(
-                                android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(
-                                        "https://github.com/diabl0w/DFRoot/releases/latest"
-                                    )
-                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                when {
+                    !scanned -> Text("scanning installed managers…", color = GC.TextDim, fontSize = 12.sp)
+                    managers.isEmpty() -> Text(
+                        "No installed manager carries libksud.so. Install KernelSU, " +
+                            "KernelSU-Next or KowSU — the exploit only starts their su daemon.",
+                        color = GC.TextDim, fontSize = 12.sp
+                    )
+                    else -> managers.forEach { m ->
+                        val sel = selected == m.pkg
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.dp, if (sel) accent else RomKit.Stroke, RoundedCornerShape(14.dp))
+                                .background(if (sel) accent.copy(alpha = 0.14f) else RomKit.Panel)
+                                .clickable {
+                                    selected = m.pkg
+                                    runCatching { com.gamershub.core.root.DfRootRunner.select(context, m.pkg) }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                m.label + " · " + m.pkg,
+                                color = GC.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+            BigButton(
+                text = when {
+                    running -> "RUNNING DFROOT…"
+                    st.hooked -> "PATCH ALREADY APPLIED"
+                    else -> "RUN DFROOT"
                 },
-                primary = kmiOk && !rootReady
+                onClick = {
+                    if (running || st.hooked || !kmiOk || !payloadOk) return@BigButton
+                    if (selected == null) {
+                        Toast.makeText(context, "Pick an SU manager first", Toast.LENGTH_SHORT).show()
+                        return@BigButton
+                    }
+                    running = true
+                    log = ""
+                    scope.launch {
+                        val rc = withContext(Dispatchers.IO) {
+                            com.gamershub.core.root.DfRootRunner.run(context) { line -> log += line }
+                        }
+                        log += "\n[exit $rc]\n"
+                        running = false
+                    }
+                },
+                primary = kmiOk && payloadOk && selected != null && !running && !st.hooked
             )
+
             // After the run, this is the button that actually matters: DFRoot has
             // started su; the ladder is what makes the grant belong to this app.
-            if (installed && st.hooked && !rootReady) {
+            if (st.hooked && !rootReady) {
                 Spacer(Modifier.height(8.dp))
                 BigButton(
                     text = "ADOPT ROOT",
@@ -1259,14 +1312,47 @@ private fun DfRootSection(
                     primary = true
                 )
             }
+
+            // Live exploit log — the same lines the DFRoot app shows, in place.
+            if (log.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF0D1117))
+                        .padding(10.dp)
+                ) {
+                    Column(
+                        Modifier
+                            .verticalScroll(rememberScrollState())
+                            .heightIn(max = 220.dp)
+                    ) {
+                        Text(
+                            log,
+                            color = Color(0xFF8CE99A),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            st.notes.filterNot { it.startsWith("DFRoot") || it.startsWith("/dev/df") }
+                .forEach { line ->
+                    Spacer(Modifier.height(6.dp))
+                    Text("· $line", color = GC.TextDim, fontSize = 12.sp)
+                }
+            Spacer(Modifier.height(11.dp))
         }
 
-        Spacer(Modifier.height(10.dp))
         Text(
-            "DFRoot gives uid 0 for one boot by patching a kernel page-cache bug, then starts " +
-                "KernelSU's su daemon. GamersHub opens it and adopts the result — the superuser " +
-                "layer above is what it bootstraps. The exploit itself is DFRoot's signed native " +
-                "payload plus one kernel module per KMI, so it runs from there, not from here.",
+            "DFRoot patches the running kernel once for this boot, then starts the su " +
+                "daemon of your installed SU manager. GamersHub carries the exact payload " +
+                "from diabl0w/DFRoot (GPL-2.0) inside this APK, so it runs right here — no " +
+                "other app needed. Wrong module for your KMI is refused by the kernel, or " +
+                "worse: boot into safe mode with Volume Down and unload modules. Reboot and " +
+                "SELinux enforces again until you run it next.",
             color = GC.TextDim.copy(alpha = 0.85f),
             fontSize = 11.sp
         )

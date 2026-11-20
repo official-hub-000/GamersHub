@@ -9,13 +9,18 @@ plugins {
 android {
     namespace = "com.gamershub"
     compileSdk = 35
+    // The DFRoot payload (lkm/ + src/main/jni) is aarch64-only: libcxx.S is ARM64 asm,
+    // and KernelSU's KMI modules exist for arm64 GKI kernels only. Build and package
+    // arm64-v8a and say so in the README instead of shipping a broken universal APK.
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.gamershub"
         minSdk = 26
         targetSdk = 35
-        versionCode = 106
-        versionName = "6.33.0"
+        versionCode = 107
+        versionName = "6.34.0"
+        ndk { abiFilters += listOf("arm64-v8a") }
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -59,12 +64,25 @@ android {
         buildConfig = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     packaging {
+        jniLibs {
+            // The payload libraries are *executables* named lib*.so. They must be
+            // extracted into nativeLibraryDir (the one directory with exec permission)
+            // or ExploitRunner's ProcessBuilder fails on API 23+.
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt")
         }

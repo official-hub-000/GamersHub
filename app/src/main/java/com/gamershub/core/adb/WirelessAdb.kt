@@ -95,11 +95,26 @@ object WirelessAdb {
      */
     fun discover(context: Context, timeoutMs: Long = 6_000): Boolean {
         attached(context)
-        val found = discoverShellPort(context, timeoutMs)
-        // Pairing is only advertised while the pairing dialog is open, so a miss here
-        // is normal and must not be treated as a failure.
-        runCatching { discoverPairingPort(context, 2_500) }
-        return found
+        // mDNS answers are layer-2 multicast; several chipsets drop them unless a
+        // multicast lock is held for the duration of the scan.
+        val wifi = context.applicationContext
+            .getSystemService(android.content.Context.WIFI_SERVICE)
+            as? android.net.wifi.WifiManager
+        val lock = runCatching {
+            wifi?.createMulticastLock("gh-adb-mdns")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.getOrNull()
+        return try {
+            val found = discoverShellPort(context, timeoutMs)
+            // Pairing is only advertised while the pairing dialog is open, so a miss
+            // here is normal and must not be treated as a failure.
+            runCatching { discoverPairingPort(context, 2_500) }
+            found
+        } finally {
+            runCatching { if (lock?.isHeld == true) lock.release() }
+        }
     }
 
     private fun discoverShellPort(context: Context, timeoutMs: Long): Boolean {
@@ -126,19 +141,23 @@ object WirelessAdb {
      */
     fun pair(context: Context, code: String, port: Int = pairingPort): Pair<Boolean, String> {
         attached(context)
+        val manual = port
         // Checked here rather than only in the UI: a caller that skips the screen must
         // not get an opaque TLS failure from three layers down.
         if (!wirelessSupported()) {
             lastError = "Wireless pairing needs Android 10 or newer (TLS 1.3)"
             return false to lastError
         }
-        if (port <= 0) {
+        if (manual > 0) {
+            // Typed in by hand — trust it and skip discovery entirely.
+            pairingPort = manual
+        } else if (pairingPort <= 0) {
             discoverPairingPort(context, 5_000)
-            if (pairingPort <= 0) {
-                return false to "Open Settings › Wireless debugging › Pair device with pairing code, then try again"
-            }
         }
-        val target = if (port > 0) port else pairingPort
+        val target = if (manual > 0) manual else pairingPort
+        if (target <= 0) {
+            return false to "Open Settings › Wireless debugging › Pair device with pairing code, then try again"
+        }
         if (code.length != 6 || code.any { !it.isDigit() }) {
             return false to "The pairing code is the six digits shown on the phone"
         }
@@ -165,14 +184,16 @@ object WirelessAdb {
      * the status becomes [Status.NOT_PAIRED] rather than a generic failure, so the UI
      * can send the user to the right screen.
      */
-    fun connect(context: Context, timeoutMs: Long = 10_000): Pair<Boolean, String> {
+    fun connect(context: Context, timeoutMs: Long = 10_000, portOverride: Int = 0): Pair<Boolean, String> {
         attached(context)
         if (!wirelessSupported()) {
             status = Status.OFF
             lastError = "Wireless debugging needs Android 10 or newer"
             return false to lastError
         }
-        if (shellPort <= 0) {
+        if (portOverride > 0) {
+            shellPort = portOverride
+        } else if (shellPort <= 0) {
             discoverShellPort(context, 6_000)
         }
         if (shellPort <= 0) {
@@ -264,10 +285,11 @@ object WirelessAdb {
         fun find(timeoutMs: Long): Int? {
             val manager = nsd ?: return null
             val port = AtomicInteger(-1)
-            val latch = Object()
-            var listener: NsdManager.DiscoveryListener? = null
+        val latch = Object()
+        val wanted = type.trimEnd('.')
+        var listener: NsdManager.DiscoveryListener? = null
 
-            listener = object : NsdManager.DiscoveryListener {
+        listener = object : NsdManager.DiscoveryListener {
                 override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
                 override fun onDiscoveryStarted(serviceType: String) = Unit
@@ -275,7 +297,10 @@ object WirelessAdb {
                 override fun onDiscoveryStopped(serviceType: String) = signal()
 
                 override fun onServiceFound(info: NsdServiceInfo) {
-                    if (info.serviceType != type) return
+                    // Some platforms advertise with a trailing dot, which would make a
+                    // strict string compare reject every service and look exactly like
+                    // "wireless debugging is broken".
+                    if (info.serviceType?.trimEnd('.') != wanted) return
                     runCatching {
                         manager.resolveService(info, object : NsdManager.ResolveListener {
                             override fun onResolveFailed(i: NsdServiceInfo, errorCode: Int) = Unit

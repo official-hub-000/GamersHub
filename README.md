@@ -50,18 +50,27 @@ Everything that needs system rights degrades honestly: the UI says *"Needs Shizu
 2. `File → Open` this folder, let Gradle sync.
 3. `./gradlew assembleDebug` → `app/build/outputs/apk/debug/`.
 
-AGP 8.7.3 · Kotlin 2.0.20 · Compose BOM 2024.09.02 · Gradle 8.9 · minSdk 26 · target/compileSdk 35 · Shizuku 13.1.5.
+AGP 8.7.3 · Kotlin 2.0.20 · Compose BOM 2024.09.02 · Gradle 8.9 · minSdk 26 · target/compileSdk 35 · Shizuku 13.1.5 · NDK 27.2.12479018.
+**Signed release APKs are arm64-v8a only** — the embedded DFRoot payload (`lkm/`, GPL-2.0) supports ARM64 GKI kernels; 32-bit-only devices are no longer supported (all ARMv8 phones from the last decade are fine).
 Release builds are produced by CI on every `v*` tag (`release.yml`).
 
 ---
 
 ## ▶️ First run
 
-1. Install **Shizuku** and start it (*Wireless debugging*, `adb`, or root).
-2. Open GamersHub → the permission sheet walks through **Notifications → Display over other apps → Write settings → Usage access → Shizuku**.
-3. Tap **Allow** on the real Shizuku prompt — the shell user-service binds instantly.
-4. Open **Tools** and switch on whatever you need: panel, monitor, crosshair, mapping, mouse.
-5. In a game, tap the floating bubble to open the AX-MODE panel; the grid opens the matching tool.
+Three privilege paths, in order of how much they can do:
+
+1. **Root** — anything with `su` (Magisk / KernelSU / APatch / DFRoot…).
+2. **Wireless debugging** *(Root tab → Wireless debugging)* — a shell as uid 2000 over
+   the phone's own `adbd`, no other app required. If auto-detect fails on your network,
+   type the port shown on the Wireless debugging settings screen and it connects anyway.
+   Optionally start the daemon so privileges outlive the ADB session (Shizuku behaviour).
+3. **Shizuku** — recommended if you already run it.
+4. **DFRoot** *(Root tab → Temporary root)* — embedded in the APK (GPL-2.0, diabl0w/DFRoot).
+   Pick your installed SU manager (KernelSU / KernelSU-Next / KowSU), press **Run DFRoot**,
+   then **Adopt root**. One boot only; reboot and SELinux enforces again.
+
+Then open **Tools** and switch on what you need, and in-game tap the bubble.
 
 ---
 
@@ -107,7 +116,7 @@ the AXERON/GAME CORNER marks, the seven crosshair vectors, the info icons and th
 
 Honest answer, in three parts, because one of them is not something any APK can promise.
 
-**What is guaranteed: installation.** GamersHub ships as one universal, signed APK with
+**What is guaranteed: installation.** GamersHub ships as one signed APK (arm64-v8a only) with
 `minSdk 26` (Android 8, 2017) and **no `maxSdkVersion`, no mandatory `<uses-feature>`, and no
 exact-version `SDK_INT ==` checks anywhere**. That is the complete list of things that make a
 side-loaded APK refuse to install on a *newer* system, and there are none. The installer checks
@@ -132,7 +141,7 @@ the classic "works today, crashes on the next Android" pattern), or regresses
 build failures, not bug reports. Current toolchain: AGP 8.7.3 · compileSdk/targetSdk 35 ·
 Gradle 8.9 · JDK 17.
 
-**Practice that keeps this true:** one universal APK · no ABI splits · release-signed with the
+**Practice that keeps this true:** one APK, one ABI · release-signed with the
 same key every time (updates keep your data and the Shizuku grant) · everything private-API is
 behind `runCatching` with a sane default.
 

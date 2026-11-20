@@ -5,7 +5,50 @@ on:
   pull_request:
 
 jobs:
+  lkms:
+    name: Build dfroot LKM (${{ matrix.kmi }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+          - android17-6.18
+    container:
+      # Same image DFRoot itself builds against — the module must match the GKI
+      # headers of each KMI exactly. A wrong one is a bootloop, not a failure.
+      image: ghcr.io/ylarod/ddk-min:${{ matrix.kmi }}-20260828
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dfroot.ko
+        run: |
+          cd lkm
+          make -j"$(nproc)"
+          llvm-objcopy --strip-unneeded \
+            -R .comment -R .note.gnu.build-id -R .note.gnu.property \
+            -R .note.Linux -R .note.GNU-stack \
+            -R .BTF -R .BTF.base -R .llvm_addrsig \
+            -R .hyp.text -R .hyp.bss -R .hyp.rodata -R .hyp.event_ids \
+            -R .hyp.patchable_function_entries -R .hyp.data dfroot.ko
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp dfroot.ko "$GITHUB_WORKSPACE/out/dfroot-${{ matrix.kmi }}.ko"
+
+      - name: Upload dfroot.ko
+        uses: actions/upload-artifact@v4
+        with:
+          name: df-lkm-${{ matrix.kmi }}
+          path: out/dfroot-${{ matrix.kmi }}.ko
+
   build:
+    needs: lkms
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +61,23 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      # The eight per-KMI kernel modules are the exploit. They are built by the
+      # `lkms` job in the same ddk-min containers DFRoot uses, and compiled into
+      # libdfroot.so by the native build below. Without them the build fails here,
+      # which is the only safe behaviour for a security-critical payload.
+      - name: Fetch dfroot LKMs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: df-lkm-*
+          merge-multiple: true
+          path: app/src/main/jni/ko
+
+      - name: Install CMake + NDK
+        run: |
+          set -e
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "cmake;3.22.1" "ndk;27.2.12479018"
 
       # Cheap static gates, before the expensive build: a forgotten journal entry
       # should fail in seconds, not after a Gradle run.

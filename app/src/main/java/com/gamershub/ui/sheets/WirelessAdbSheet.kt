@@ -76,6 +76,7 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
     var daemonMsg by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var port by remember { mutableStateOf(WirelessAdb.shellPort) }
+    var manualPort by remember { mutableStateOf("") }
 
     val connected = status == WirelessAdb.Status.CONNECTED
 
@@ -274,6 +275,37 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
 
+            TextField(
+                value = manualPort,
+                onValueChange = { input ->
+                    // Optional fallback: mDNS discovery can fail on networks and
+                    // chipsets that drop multicast. The port is printed on the same
+                    // Settings screen that shows the code, so it costs nothing to use.
+                    manualPort = input.filter { it.isDigit() }.take(5)
+                },
+                placeholder = { Text("port — optional", color = GC.TextDim, fontSize = 13.sp) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = RomKit.Panel,
+                    unfocusedContainerColor = RomKit.Panel,
+                    focusedTextColor = GC.Text,
+                    unfocusedTextColor = GC.Text,
+                    cursorColor = accent,
+                    focusedIndicatorColor = accent,
+                    unfocusedIndicatorColor = RomKit.Stroke
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "If auto-detect fails, type the port shown on the Wireless debugging " +
+                    "screen (the pairing dialog prints its own).",
+                color = GC.TextDim.copy(alpha = 0.85f),
+                fontSize = 10.sp
+            )
+            Spacer(Modifier.height(10.dp))
+
             BigButton(
                 text = if (busy.isNotBlank()) "WORKING…" else "PAIR & CONNECT",
                 onClick = {
@@ -284,8 +316,9 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                     if (busy.isNotBlank()) return@BigButton
                     scope.launch {
                         busy = "Looking for adbd…"
+                        val manual = manualPort.toIntOrNull() ?: 0
                         val paired = withContext(Dispatchers.IO) {
-                            WirelessAdb.pair(context, code)
+                            WirelessAdb.pair(context, code, manual)
                         }
                         if (!paired.first) {
                             busy = ""
@@ -346,9 +379,14 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         if (busy.isNotBlank()) return@BigButton
                         scope.launch {
                             busy = "Finding the current port…"
+                            val manual = manualPort.toIntOrNull() ?: 0
                             val res = withContext(Dispatchers.IO) {
-                                WirelessAdb.discover(context)
-                                WirelessAdb.connect(context)
+                                if (manual > 0) {
+                                    WirelessAdb.connect(context, 10_000, manual)
+                                } else {
+                                    WirelessAdb.discover(context)
+                                    WirelessAdb.connect(context)
+                                }
                             }
                             busy = ""
                             message = if (res.first) "Connected — ${res.second}" else res.second
