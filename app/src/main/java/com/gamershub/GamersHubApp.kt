@@ -69,6 +69,10 @@ class GamersHubApp : Application() {
         super.onCreate()
         instance = this
         installCrashGuard()
+        // Mutations have to be journaled from the moment the app can make one, or the
+        // engine's "puts everything back" promise has a hole in it.
+        runCatching { com.gamershub.core.root.ModuleManager.attach(this) }
+        runCatching { com.gamershub.core.DeviceSpoofer.attach(this) }
         // Restore the persisted master-engine state so a restart cannot silently
         // leave privileged surfaces armed, or lose a switch the user turned on.
         runCatching { com.gamershub.core.Engine.restore(this) }

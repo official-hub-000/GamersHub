@@ -12,6 +12,24 @@ package com.gamershub.core.root
  */
 object RootTools {
 
+    /**
+     * Journal sink, set at app start.
+     *
+     * Freezing a package is the most user-visible thing this app can do: the icon stays
+     * on the home screen and refuses to open. If "engine off" does not put it back, the
+     * user is left with a phone where an app silently stopped working.
+     */
+    @Volatile
+    private var journal: android.content.Context? = null
+
+    fun attach(context: android.content.Context) {
+        journal = context.applicationContext
+    }
+
+    private fun record(kind: com.gamershub.core.ChangeLog.Kind, subject: String, before: String, after: String) {
+        journal?.let { com.gamershub.core.ChangeLog.record(it, kind, subject, before, after) }
+    }
+
     data class Result(val ok: Boolean, val detail: String)
 
     private fun has(): Boolean = RootShell.ready()
@@ -46,14 +64,47 @@ object RootTools {
 
     /** Freeze (disable) a package in place — stays installed, cannot run. */
     fun freezePackage(pkg: String): Result =
-        if (!has()) none("freeze") else run("pm disable-user --user 0 ${q(pkg)}")
+        if (!has()) {
+            none("freeze")
+        } else {
+            run("pm disable-user --user 0 ${q(pkg)}").also { r ->
+                if (r.ok) record(
+                    com.gamershub.core.ChangeLog.Kind.PACKAGE_DISABLED, pkg, "enabled", "disabled"
+                )
+            }
+        }
 
     fun unfreezePackage(pkg: String): Result =
-        if (!has()) none("unfreeze") else run("pm enable ${q(pkg)}")
+        if (!has()) {
+            none("unfreeze")
+        } else {
+            run("pm enable ${q(pkg)}").also { r ->
+                if (r.ok) {
+                    journal?.let { ctx ->
+                        com.gamershub.core.ChangeLog.replace(
+                            ctx,
+                            com.gamershub.core.ChangeLog.current(ctx).filterNot {
+                                it.kind == com.gamershub.core.ChangeLog.Kind.PACKAGE_DISABLED &&
+                                    it.subject == pkg
+                            }
+                        )
+                    }
+                }
+            }
+        }
 
     /** Disable a package for the current user without uninstalling it. */
     fun suspendPackage(pkg: String): Result =
-        if (!has()) none("suspend") else run("pm suspend ${q(pkg)}")
+        if (!has()) {
+            none("suspend")
+        } else {
+            run("pm suspend ${q(pkg)}").also { r ->
+                // Suspending is reversed the same way as disabling: `pm enable`.
+                if (r.ok) record(
+                    com.gamershub.core.ChangeLog.Kind.PACKAGE_DISABLED, pkg, "enabled", "suspended"
+                )
+            }
+        }
 
     fun unsuspendPackage(pkg: String): Result =
         if (!has()) none("unsuspend") else run("pm unsuspend ${q(pkg)}")

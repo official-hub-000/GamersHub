@@ -28,6 +28,25 @@ import kotlin.math.roundToInt
  */
 object RenderEngine {
 
+    /**
+     * Journal sink, set at app start.
+     *
+     * `cmd game` writes are per-package platform state. There is no "read it back" for a
+     * game that was never configured, so the package has to be recorded when it is first
+     * touched or the engine cannot undo it.
+     */
+    @Volatile
+    private var journal: android.content.Context? = null
+
+    fun attachJournal(context: android.content.Context) {
+        journal = context.applicationContext
+    }
+
+    private fun attach(context: android.content.Context): android.content.Context? {
+        if (journal == null) journal = context.applicationContext
+        return journal
+    }
+
     data class Step(val label: String, val command: String, val ok: Boolean, val output: String = "")
 
     data class Report(
@@ -140,6 +159,19 @@ object RenderEngine {
                 }
                 val modeCmd = "cmd game set --mode $mode $pkg"
                 steps.add(Step("gpu mode $mode (per app)", modeCmd, Shell.ok(modeCmd)))
+
+                // Journaled once per package. `cmd game` state is stored by the platform
+                // per app and cannot be reconstructed afterwards, so the engine needs to
+                // know which packages were touched in order to call `cmd game reset`.
+                attach(context)?.let { ctx ->
+                    com.gamershub.core.ChangeLog.record(
+                        ctx,
+                        com.gamershub.core.ChangeLog.Kind.GAME_MODE,
+                        pkg,
+                        before = "stock",
+                        after = "mode=$mode scale=$scalePct fps=$fps"
+                    )
+                }
             }
         }
 

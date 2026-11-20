@@ -18,6 +18,26 @@ import java.io.File
  */
 object ModuleManager {
 
+    /**
+     * Set once at app start.
+     *
+     * Mutations are journaled ([com.gamershub.core.ChangeLog]) so the engine can undo
+     * them, and journaling needs storage. Keeping it here rather than adding a `Context`
+     * parameter to every method preserves the existing call sites — and, more
+     * importantly, means a mutation cannot be made *without* being journaled, which is
+     * exactly how a "turns everything back" promise silently stops being true.
+     */
+    @Volatile
+    private var journal: android.content.Context? = null
+
+    fun attach(context: android.content.Context) {
+        journal = context.applicationContext
+    }
+
+    private fun record(kind: com.gamershub.core.ChangeLog.Kind, subject: String, before: String, after: String) {
+        journal?.let { com.gamershub.core.ChangeLog.record(it, kind, subject, before, after) }
+    }
+
     private const val MODULES = "/data/adb/modules"
     private const val MODULES_UPDATE = "/data/adb/modules_update"
 
@@ -135,16 +155,27 @@ object ModuleManager {
     /** Enables a module. Takes effect at the next boot, as with the manager UI. */
     fun enable(id: String): RootTools.Result {
         if (!RootShell.ready()) return RootTools.Result(false, "needs root")
+        val wasDisabled = isDisabled(id)
         val r = RootShell.run("rm -f $MODULES/$id/disable; echo __GH_EXIT__=$?")
         val ok = r?.contains("__GH_EXIT__=0") == true
+        // Recorded against the state before this call, so undo knows which way to go.
+        if (ok) record(
+            com.gamershub.core.ChangeLog.Kind.MODULE_STATE, id,
+            if (wasDisabled) "disabled" else "enabled", "enabled"
+        )
         return RootTools.Result(ok, if (ok) "$id enabled — reboot to load" else "could not enable $id")
     }
 
     /** Disables a module without uninstalling it. */
     fun disable(id: String): RootTools.Result {
         if (!RootShell.ready()) return RootTools.Result(false, "needs root")
+        val wasDisabled = isDisabled(id)
         val r = RootShell.run("touch $MODULES/$id/disable; echo __GH_EXIT__=$?")
         val ok = r?.contains("__GH_EXIT__=0") == true
+        if (ok) record(
+            com.gamershub.core.ChangeLog.Kind.MODULE_STATE, id,
+            if (wasDisabled) "disabled" else "enabled", "disabled"
+        )
         return RootTools.Result(ok, if (ok) "$id disabled — reboot to unload" else "could not disable $id")
     }
 
@@ -157,6 +188,9 @@ object ModuleManager {
         if (!RootShell.ready()) return RootTools.Result(false, "needs root")
         val r = RootShell.run("touch $MODULES/$id/remove; echo __GH_EXIT__=$?")
         val ok = r?.contains("__GH_EXIT__=0") == true
+        if (ok) record(
+            com.gamershub.core.ChangeLog.Kind.MODULE_REMOVE_QUEUED, id, "present", "removal queued"
+        )
         return RootTools.Result(ok, if (ok) "$id queued for removal — reboot to finish" else "could not remove $id")
     }
 
@@ -186,6 +220,13 @@ object ModuleManager {
         if (!RootShell.ready()) return RootTools.Result(false, "needs root")
         val r = RootShell.run("rm -f $MODULES/$id/remove; echo __GH_EXIT__=$?")
         val ok = r?.contains("__GH_EXIT__=0") == true
+        // Cancelling a removal the app queued makes that journal entry moot.
+        if (ok) journal?.let { ctx ->
+            val remaining = com.gamershub.core.ChangeLog.current(ctx).filterNot {
+                it.kind == com.gamershub.core.ChangeLog.Kind.MODULE_REMOVE_QUEUED && it.subject == id
+            }
+            com.gamershub.core.ChangeLog.replace(ctx, remaining)
+        }
         return RootTools.Result(ok, if (ok) "removal of $id cancelled" else "could not cancel")
     }
 
@@ -245,6 +286,19 @@ object ModuleManager {
         }
 
         RootShell.run("rm -f $staged")
+        if (result.ok) {
+            // Which module appeared is only knowable after the fact, so the newest
+            // directory in the module tree is taken as the one that was just flashed.
+            // Queueing its removal at engine stop is the honest undo: deleting the
+            // directory of a module whose files may already be live is how a bootloop
+            // happens, and the managers' own removal marker runs the uninstall path.
+            val newId = RootShell.run(
+                "ls -t $MODULES 2>/dev/null | head -1"
+            )?.trim().orEmpty()
+            if (newId.isNotBlank()) {
+                record(com.gamershub.core.ChangeLog.Kind.MODULE_INSTALLED, newId, "absent", "flashed")
+            }
+        }
         return if (result.ok) {
             RootTools.Result(true, "flashed — reboot to load the module")
         } else {

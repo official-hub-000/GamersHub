@@ -18,6 +18,21 @@ import kotlin.math.roundToInt
  */
 object DeviceSpoofer {
 
+    /**
+     * Journal sink, set at app start.
+     *
+     * Identity spoofing writes `ro.*` properties that no settings snapshot can restore,
+     * so the original value has to be captured at the moment of the write. Null simply
+     * means the journal is not available yet, and the write proceeds un-journaled — which
+     * [restore] still covers for the common presets.
+     */
+    @Volatile
+    private var journal: android.content.Context? = null
+
+    fun attach(context: android.content.Context) {
+        journal = context.applicationContext
+    }
+
     data class Preset(
         val name: String,
         val model: String,
@@ -241,16 +256,29 @@ object DeviceSpoofer {
     /** Identity spoof through resetprop/setprop — root only, read back and verified. */
     fun applyIdentity(preset: Preset): Pair<Boolean, String> {
         if (!isRooted()) return false to "Root required for model/build properties"
-        val commands = listOf(
-            "resetprop -n ro.product.model '${preset.model}'",
-            "resetprop -n ro.product.manufacturer '${preset.manufacturer}'",
-            "resetprop -n ro.product.device '${preset.device}'",
-            "resetprop -n ro.product.system.model '${preset.model}'",
-            "resetprop -n ro.product.vendor.model '${preset.model}'",
-            "resetprop -n ro.build.product '${preset.device}'"
+        val targets = listOf(
+            "ro.product.model" to preset.model,
+            "ro.product.manufacturer" to preset.manufacturer,
+            "ro.product.device" to preset.device,
+            "ro.product.system.model" to preset.model,
+            "ro.product.vendor.model" to preset.model,
+            "ro.build.product" to preset.device
         )
-        for (command in commands) {
-            Shell.exec("su -c \"$command\"")
+        for ((prop, value) in targets) {
+            // Read the real value *before* writing, and journal it. `resetprop` on a ro.*
+            // property is not undone by restoring a settings row, and a phone whose build
+            // fingerprint stays spoofed after "engine off" is exactly the leak this app
+            // must not have. The journal is the only thing that knows the original.
+            val before = Shell.exec("getprop $prop")?.trim().orEmpty()
+            Shell.exec("su -c \"resetprop -n $prop '$value'\"")
+            val after = Shell.exec("getprop $prop")?.trim().orEmpty()
+            if (after == value && before != value) {
+                journal?.let { ctx ->
+                    com.gamershub.core.ChangeLog.record(
+                        ctx, com.gamershub.core.ChangeLog.Kind.PROP, prop, before, value
+                    )
+                }
+            }
         }
         val readBack = Shell.exec("getprop ro.product.model")?.trim().orEmpty()
         return (readBack == preset.model) to readBack

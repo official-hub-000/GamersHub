@@ -185,6 +185,24 @@ object Engine {
             done += "root procs"
         }
 
+        // 3b. UNDO PRIVILEGED CHANGES. A snapshot cannot reverse a module toggle or a
+        //     flashed zip — those have to be replayed from the journal, and this is the
+        //     last moment where a shell still exists to replay them with. Runs before
+        //     Restore so the journal's own reports land in the same summary.
+        runCatching {
+            val undone = com.gamershub.core.ChangeLog.undo(context) { cmd ->
+                Channel.exec(context, cmd, 12_000) ?: RootShell.run(cmd, 12_000)
+            }
+            if (!undone.empty) {
+                done += "changes: ${undone.report()}"
+                // Surfaced to the user because these are the changes that only take
+                // effect at the next boot — saying "restored" would be a lie until then.
+                if (undone.needsReboot.isNotEmpty()) {
+                    done += "reboot to finish: ${undone.needsReboot.take(3).joinToString(", ")}"
+                }
+            }
+        }
+
         // 4. RESTORE. This is the part that turns "off" into "as it was".
         val report = runCatching { Restore.restore(context) }.getOrNull()
         if (report != null) {

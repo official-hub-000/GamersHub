@@ -185,6 +185,23 @@ object GfxEngine {
     }
 
     /** Sustained-performance + GameMode override: real frame pacing, no thermal spikes. */
+    /**
+     * Undoes a global frame-boost / game-mode override.
+     *
+     * `cmd game set` without a package writes platform-wide GameManager state, which no
+     * settings snapshot covers — so the engine calls this on every stop. Returns true
+     * when the platform accepted the reset.
+     */
+    fun resetFrameBoost(): Boolean = try {
+        var ok = false
+        ok = Shell.ok("cmd power set-fixed-performance-mode-enabled false") || ok
+        ok = Shell.ok("cmd game set --mode standard") || ok
+        ok = Shell.ok("cmd game set --downscale 1.0") || ok
+        ok
+    } catch (_: Throwable) {
+        false
+    }
+
     fun setFrameBoost(on: Boolean): Boolean = try {
         var ok = false
         if (on) {

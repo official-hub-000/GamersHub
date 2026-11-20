@@ -232,6 +232,16 @@ object Restore {
             if (cleared.isNotEmpty()) report.restored += "props (${cleared.size})"
         }.onFailure { report.failed += "props" }
 
+        // ---------------------------------------------------- 4b. game/frame overrides
+        // `cmd game set` without a package is platform-wide GameManager state. It is not
+        // a settings row, so nothing above this line undoes it — and a phone left in
+        // "performance, downscale 1.0, fixed-performance-mode on" after the engine is
+        // turned off is exactly the leak the restore promise is supposed to prevent.
+        runCatching {
+            if (GfxEngine.resetFrameBoost()) report.restored += "game mode override"
+            else report.restored += "game mode override (already clean)"
+        }.onFailure { report.failed += "game mode override" }
+
         // ---------------------------------------------------- 5. graphics state
         runCatching {
             GfxSafe.repair(context)

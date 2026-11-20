@@ -81,6 +81,10 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
     var showReboot by remember { mutableStateOf(false) }
     var pendingReboot by remember { mutableStateOf<com.gamershub.core.root.Reboot.Mode?>(null) }
     var rebootLog by remember { mutableStateOf("") }
+    // One confirm gate for every privileged change that cannot simply be toggled back.
+    // Asking before the act — and saying what undoes it — is what makes the buttons
+    // safe to press rather than merely present.
+    val confirm = com.gamershub.ui.components.rememberConfirmGate()
 
     // Live snapshot: root state and module list. Refreshed on a timer so a change
     // made in the Magisk app shows up here without a restart.
@@ -485,23 +489,48 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     accent = accent,
                     busy = busy.isNotEmpty(),
                     onToggle = { want ->
-                        scope.launch {
-                            busy = m.id
-                            val r = withContext(Dispatchers.IO) {
-                                if (want) ModuleManager.enable(m.id) else ModuleManager.disable(m.id)
+                        val go = {
+                            scope.launch {
+                                busy = m.id
+                                val r = withContext(Dispatchers.IO) {
+                                    if (want) ModuleManager.enable(m.id) else ModuleManager.disable(m.id)
+                                }
+                                busy = ""
+                                message = r.detail
+                                Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
                             }
-                            busy = ""
-                            message = r.detail
-                            Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
+                            Unit
+                        }
+                        if (want) {
+                            // Enabling is the recovery direction: no gate.
+                            go()
+                        } else {
+                            confirm.ask(
+                                title = "Disable ${m.name}?",
+                                body = "It stops loading at the next boot. Nothing is deleted and " +
+                                    "no file is touched.",
+                                confirmLabel = "DISABLE",
+                                reversible = "turning the engine off re-enables it, or toggle it back here"
+                            ) { go() }
                         }
                     },
                     onRemove = {
-                        scope.launch {
-                            busy = m.id
-                            val r = withContext(Dispatchers.IO) { ModuleManager.remove(m.id) }
-                            busy = ""
-                            message = r.detail
-                            Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
+                        confirm.ask(
+                            title = "Remove ${m.name}?",
+                            body = "It is queued for removal now and the manager deletes it " +
+                                "at the next boot — its files are not pulled out from under a " +
+                                "live system.",
+                            confirmLabel = "REMOVE",
+                            reversible = "turning the engine off cancels the queue before it runs",
+                            destructive = true
+                        ) {
+                            scope.launch {
+                                busy = m.id
+                                val r = withContext(Dispatchers.IO) { ModuleManager.remove(m.id) }
+                                busy = ""
+                                message = r.detail
+                                Toast.makeText(context, r.detail, Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 )

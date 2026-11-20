@@ -19,6 +19,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      # Cheap static gates, before the expensive build: a forgotten journal entry
+      # should fail in seconds, not after a Gradle run.
+      - name: Verify restore coverage
+        run: python3 tools/check_restore_coverage.py
+
+      - name: Verify privileged changes are journaled
+        run: python3 tools/check_changelog_coverage.py
+
       - name: Build debug APK
         run: |
           set -o pipefail
