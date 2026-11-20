@@ -114,6 +114,20 @@
             android:theme="@style/Theme.GamersHub" />
 
         <!-- Floating pop-up panel -->
+        <!-- After a soft restart (or a reboot the user asked for), the framework comes
+             back up but GamersHub's daemon does not. This re-arms the engine so a
+             privileged feature is not dead until the user re-opens the app. -->
+        <receiver
+            android:name=".core.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".overlay.FloatingPanelService"
             android:exported="false"

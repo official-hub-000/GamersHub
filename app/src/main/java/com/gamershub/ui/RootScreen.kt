@@ -76,6 +76,11 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
     // This screen hosts its own dialogs; the wireless sheet lives here so a user who
     // lands on the ROOT tab can pair without hunting for the Power Up spot.
     var showWireless by remember { mutableStateOf(false) }
+    // Reboot modes. The picker is a dialog because every option is one-way: there is no
+    // "undo" once the phone goes down, so an accidental tap must not be possible.
+    var showReboot by remember { mutableStateOf(false) }
+    var pendingReboot by remember { mutableStateOf<com.gamershub.core.root.Reboot.Mode?>(null) }
+    var rebootLog by remember { mutableStateOf("") }
 
     // Live snapshot: root state and module list. Refreshed on a timer so a change
     // made in the Magisk app shows up here without a restart.
@@ -245,18 +250,24 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                         scope.launch { withContext(Dispatchers.IO) { ModuleManager.list() } }
                     }
                     Pill("DIAGNOSE") { showDiag = !showDiag }
-                    if (snap.modules.isNotEmpty()) {
-                        Pill("REBOOT") {
-                            scope.launch {
-                                withContext(Dispatchers.IO) { ModuleManager.reboot() }
-                                Toast.makeText(context, "Rebooting…", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
+                    Pill("REBOOT") { showReboot = true }
                 }
             }
             Spacer(Modifier.height(12.dp))
         }
+
+        // ---------------------------------------------------------- reboot
+        SectionHead("REBOOT")
+        RebootSection(
+            accent = accent,
+            supported = snap.ready,
+            onPick = { showReboot = true }
+        )
+        if (rebootLog.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(rebootLog, color = GC.TextDim, fontSize = 11.sp)
+        }
+        Spacer(Modifier.height(16.dp))
 
         // ---------------------------------------------------------- diagnostics
         AnimatedVisibility(visible = showDiag) {
@@ -556,6 +567,90 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
     // Hosted here (rather than in the lobby shell) so a user already on the ROOT tab
     // can pair without leaving the screen they were reading.
+    // ---------------------------------------------------------------- reboot picker
+    if (showReboot) {
+        RebootPicker(
+            supported = snap.ready,
+            onDismiss = { showReboot = false },
+            onPick = { mode -> pendingReboot = mode; showReboot = false }
+        )
+    }
+
+    // ---------------------------------------------------------------- confirm
+    // Every mode is destructive in the sense that it cannot be undone from inside the
+    // app, and soft restart can leave the phone needing a hardware reboot. So it is
+    // always a two-step: choose, then confirm with the consequence spelled out.
+    pendingReboot?.let { mode ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { pendingReboot = null }) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RomKit.R18)
+                    .background(RomKit.Panel)
+                    .padding(18.dp)
+            ) {
+                Column {
+                    Text(mode.label, color = GC.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(mode.detail, color = GC.TextDim, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    // Name exactly what is lost, because that is the thing a user cannot
+                    // work out for themselves before tapping.
+                    Text(
+                        when (mode) {
+                            com.gamershub.core.root.Reboot.Mode.SOFT ->
+                                "Temporary root and the shell daemon keep running. Only the " +
+                                    "Android services restart."
+                            com.gamershub.core.root.Reboot.Mode.USERSPACE ->
+                                "The kernel keeps running. Anything started in the userspace " +
+                                    "(including the shell daemon) is restarted."
+                            com.gamershub.core.root.Reboot.Mode.NORMAL ->
+                                "Temporary root, the shell daemon and wireless debugging all " +
+                                    "end. Nothing GamersHub did survives."
+                            else -> "The phone will leave Android entirely."
+                        },
+                        color = Color(0xFFE0A33A), fontSize = 11.sp
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BigButton(
+                            text = "CANCEL",
+                            onClick = { pendingReboot = null },
+                            primary = false,
+                            modifier = Modifier.weight(1f)
+                        )
+                        BigButton(
+                            text = "GO",
+                            onClick = {
+                                val chosen = mode
+                                pendingReboot = null
+                                scope.launch {
+                                    busy = "rebooting"
+                                    rebootLog = withContext(Dispatchers.IO) {
+                                        com.gamershub.core.root.Reboot.run(
+                                            chosen,
+                                            shell = { cmd ->
+                                                com.gamershub.core.root.RootShell.run(cmd, 15_000)
+                                                    ?: com.gamershub.core.shizuku.Shell.exec(cmd)
+                                            },
+                                            prepare = {
+                                                runCatching { com.gamershub.core.Engine.stopEverything(context) }
+                                            }
+                                        )
+                                    }
+                                    busy = ""
+                                    Toast.makeText(context, rebootLog, Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            primary = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     if (showWireless) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { showWireless = false }) {
             Box(
@@ -565,6 +660,129 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     .background(RomKit.Panel)
             ) {
                 com.gamershub.ui.sheets.WirelessAdbSheet(onDismiss = { showWireless = false })
+            }
+        }
+    }
+}
+
+/**
+ * The reboot-mode section.
+ *
+ * Sits low on the ROOT tab on purpose: it is a maintenance control, not something to
+ * brush against while tuning graphics. The KernelSU modes are all here because a user
+ * coming from KernelSU expects to find them, and because "restart the services without
+ * dropping root" is genuinely useful when a module was just flashed.
+ */
+@Composable
+private fun RebootSection(
+    accent: Color,
+    supported: Boolean,
+    onPick: () -> Unit
+) {
+    Card(borderColor = RomKit.Stroke) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Reboot modes", color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (supported) "Full, userspace, soft restart, recovery, bootloader, download, EDL"
+                    else "Needs root or a shell to issue the reboot",
+                    color = GC.TextDim, fontSize = 12.sp
+                )
+            }
+            Text(
+                if (supported) "READY" else "NO SHELL",
+                color = if (supported) Color(0xFF39D98A) else Color(0xFFE0A33A),
+                fontSize = 9.sp, letterSpacing = 0.8.sp
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        BigButton(
+            text = "CHOOSE REBOOT MODE",
+            onClick = onPick,
+            primary = false
+        )
+    }
+}
+
+/**
+ * The mode list.
+ *
+ * Soft restart is marked, not hidden: it is the one that can leave a phone needing a
+ * hardware reboot, and a user who does not know that will blame the app when it happens.
+ */
+@Composable
+private fun RebootPicker(
+    supported: Boolean,
+    onDismiss: () -> Unit,
+    onPick: (com.gamershub.core.root.Reboot.Mode) -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RomKit.R18)
+                .background(RomKit.Panel)
+                .padding(16.dp)
+        ) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Reboot",
+                        color = GC.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(GC.SurfaceHi)
+                            .clickable(onClick = onDismiss)
+                            .padding(10.dp)
+                    ) {
+                        Icon(GhIcons.Close, contentDescription = "Close", tint = GC.Text, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+
+                com.gamershub.core.root.Reboot.Mode.entries.forEach { mode ->
+                    val risky = mode == com.gamershub.core.root.Reboot.Mode.SOFT
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(enabled = supported) { onPick(mode) }
+                            .padding(vertical = 11.dp, horizontal = 4.dp)
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    mode.label,
+                                    color = if (supported) GC.Text else GC.TextDim,
+                                    fontSize = 14.sp
+                                )
+                                if (risky) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(Color(0x22E0A33A))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("EMULATED", color = Color(0xFFE0A33A), fontSize = 8.sp)
+                                    }
+                                }
+                            }
+                            Text(mode.detail, color = GC.TextDim, fontSize = 10.sp, maxLines = 2)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Temporary root and the shell daemon both end at a full reboot. " +
+                        "Soft restart and userspace reboot deliberately keep the kernel running.",
+                    color = GC.TextDim.copy(alpha = 0.8f), fontSize = 10.sp
+                )
             }
         }
     }

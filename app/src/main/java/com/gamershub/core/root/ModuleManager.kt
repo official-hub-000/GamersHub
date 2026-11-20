@@ -164,13 +164,21 @@ object ModuleManager {
     fun isDisabled(id: String): Boolean =
         RootShell.run("test -f $MODULES/$id/disable && echo yes", 3_000)?.trim() == "yes"
 
-    /** Soft-reboots only the userspace, which is what KernelSU's late-load uses. */
+    /**
+     * Soft-reboots only the userspace, which is what KernelSU's late-load uses.
+     *
+     * Delegates to [Reboot] so there is one implementation of the sequence instead of a
+     * weaker second one: `stop; start` sent from inside the process being stopped is
+     * exactly the failure mode the researched version avoids by detaching first.
+     */
     fun softRebootUserspace(): Boolean {
         if (!RootShell.ready()) return false
-        for (cmd in listOf("setprop ctl.restart zygote", "stop; start")) {
-            if (RootShell.ok(cmd)) return true
-        }
-        return false
+        val log = Reboot.run(
+            Reboot.Mode.SOFT,
+            shell = { cmd -> RootShell.run(cmd, 15_000) },
+            prepare = {}
+        )
+        return log.contains("soft restart running")
     }
 
     /** Undoes a pending removal. */
