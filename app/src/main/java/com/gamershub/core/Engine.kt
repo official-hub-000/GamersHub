@@ -221,6 +221,8 @@ object Engine {
         !isOn -> "Engine off — phone restored"
         Channel.kind() == Channel.Kind.ROOT ->
             "Engine on · root · ${RootShell.method}"
+        Channel.kind() == Channel.Kind.WIRELESS ->
+            "Engine on · wireless debugging (shell subset) · root adds ${missingFromShizuku()}"
         Channel.kind() == Channel.Kind.SHIZUKU ->
             "Engine on · Shizuku (shell subset) · root adds ${missingFromShizuku()}"
         else -> "Engine on · no privilege — overlays only"

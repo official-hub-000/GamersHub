@@ -37,6 +37,15 @@ object PrivilegeLadder {
         /** Shizuku: shell (uid 2000). Everything except genuine uid 0 work. */
         SHIZUKU("shizuku", "shell subset via Shizuku"),
 
+        /**
+         * uid 2000 over the phone's own adbd.
+         *
+         * Ranked beside Shizuku because it *is* the same privilege — same uid, same
+         * SELinux domain — reached with no second app installed. Its own rung so the
+         * UI can say which shell answered, since the fix differs when one drops.
+         */
+        WIRELESS("wireless", "wireless debugging — uid 2000, no Shizuku needed"),
+
         /** Root through a manager that persists across reboots. */
         PERSISTENT_ROOT("root", "persistent root"),
 
