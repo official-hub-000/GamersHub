@@ -50,7 +50,7 @@ Everything that needs system rights degrades honestly: the UI says *"Needs Shizu
 2. `File → Open` this folder, let Gradle sync.
 3. `./gradlew assembleDebug` → `app/build/outputs/apk/debug/`.
 
-AGP 8.5.2 · Kotlin 2.0.20 · Compose BOM 2024.09.02 · Gradle 8.9 · minSdk 26 · target/compileSdk 34 · Shizuku 13.1.5.
+AGP 8.7.3 · Kotlin 2.0.20 · Compose BOM 2024.09.02 · Gradle 8.9 · minSdk 26 · target/compileSdk 35 · Shizuku 13.1.5.
 Release builds are produced by CI on every `v*` tag (`release.yml`).
 
 ---
@@ -100,6 +100,41 @@ app/src/main/java/com/gamershub/
 All UI artwork that ships here was extracted from the original application package
 (`frb.axeron.redcorner` 2.5.3) with `apktool`/`jadx`/REA + Ghidra analysis: the AXGC font family,
 the AXERON/GAME CORNER marks, the seven crosshair vectors, the info icons and the intro video.
+
+---
+
+## 🛡 Long-term install compatibility — will this still work on Android 100?
+
+Honest answer, in three parts, because one of them is not something any APK can promise.
+
+**What is guaranteed: installation.** GamersHub ships as one universal, signed APK with
+`minSdk 26` (Android 8, 2017) and **no `maxSdkVersion`, no mandatory `<uses-feature>`, and no
+exact-version `SDK_INT ==` checks anywhere**. That is the complete list of things that make a
+side-loaded APK refuse to install on a *newer* system, and there are none. The installer checks
+the floor, never the ceiling. Your signed APK will install on Android 15, 16, 20… and eventually
+100 more or less untouched — the app id never changes, and every release is signed with the
+same key, so updates keep your data and the Shizuku grant.
+
+**What the platform will do to old builds.** Somewhere along the way, Android will start showing
+the *"This app was built for an older version of Android"* dialog. It is a warning, not an error
+— tap through and the app still runs. Hard blocks exist, but only at the bottom: Android 14
+refuses apps targeting below 23, Android 15 below 24, roughly +1 API level per release. GamersHub
+targets **35**, which is decades of headroom above that floor. The one thing that genuinely
+cannot be done today is *pre-authorising* compatibility with Android 100's behaviour changes —
+when Android ships one that affects this app, it will need a new release with a bumped
+`targetSdk`, same as every app you have ever updated.
+
+**What we do about it.** `tools/check_install_future.py` runs in CI *before every build* and
+fails it if anyone ever adds a `maxSdkVersion`, a mandatory `<uses-feature>`, an exact
+`SDK_INT ==` check, a reference to a hidden platform API (`android.internal.*`, `ActivityThread` —
+the classic "works today, crashes on the next Android" pattern), or regresses
+`targetSdk`/`minSdk`/`compileSdk` below the floors in the file. Compatibility regressions become
+build failures, not bug reports. Current toolchain: AGP 8.7.3 · compileSdk/targetSdk 35 ·
+Gradle 8.9 · JDK 17.
+
+**Practice that keeps this true:** one universal APK · no ABI splits · release-signed with the
+same key every time (updates keep your data and the Shizuku grant) · everything private-API is
+behind `runCatching` with a sane default.
 
 ---
 

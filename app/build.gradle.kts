@@ -8,14 +8,14 @@ plugins {
 
 android {
     namespace = "com.gamershub"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.gamershub"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 105
-        versionName = "6.32.0"
+        targetSdk = 35
+        versionCode = 106
+        versionName = "6.33.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
