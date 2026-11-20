@@ -268,11 +268,11 @@ object WirelessAdb {
             var listener: NsdManager.DiscoveryListener? = null
 
             listener = object : NsdManager.DiscoveryListener {
-                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = notify()
-                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = notify()
+                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
+                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
                 override fun onDiscoveryStarted(serviceType: String) = Unit
 
-                override fun onDiscoveryStopped(serviceType: String) = notify()
+                override fun onDiscoveryStopped(serviceType: String) = signal()
 
                 override fun onServiceFound(info: NsdServiceInfo) {
                     if (info.serviceType != type) return
@@ -281,7 +281,7 @@ object WirelessAdb {
                             override fun onResolveFailed(i: NsdServiceInfo, errorCode: Int) = Unit
                             override fun onServiceResolved(i: NsdServiceInfo) {
                                 if (i.port > 0) port.compareAndSet(-1, i.port)
-                                notify()
+                                signal()
                             }
                         })
                     }
@@ -289,7 +289,9 @@ object WirelessAdb {
 
                 override fun onServiceLost(info: NsdServiceInfo) = Unit
 
-                private fun notify() = synchronized(latch) { latch.notifyAll() }
+                // Not named notify(): that is java.lang.Object.notify(), and a private method
+                // with the same JVM signature is an accidental override.
+                private fun signal() = synchronized(latch) { latch.notifyAll() }
             }
 
             return try {
