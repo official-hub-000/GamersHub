@@ -185,6 +185,9 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             engineTick
             com.gamershub.core.Engine.isOn
         }
+        // A crash that killed the previous launch could not be offered at the time.
+        // Pick it up once here, and let the reporter ask about it.
+        var startupCrash by remember { mutableStateOf(com.gamershub.core.StartupWatch.onLaunch(context)) }
         var sheet by remember { mutableStateOf<SheetState>(SheetState.None) }
         // Engine.start() talks to adbd and the shell; it must never run on the UI thread.
         val shellScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -828,9 +831,6 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         // sent from there. It is polled rather than checked once, because a feature can
         // break halfway through a session without the process dying.
         var autoReport by remember { mutableStateOf(false) }
-        // A crash that killed the previous launch could not be offered at the time.
-        // Pick it up once here, and let the reporter ask about it.
-        var startupCrash by remember { mutableStateOf(com.gamershub.core.StartupWatch.onLaunch(context)) }
         LaunchedEffect(Unit) {
             while (true) {
                 if (com.gamershub.core.IssueReporter.shouldAutoOpen(context)) autoReport = true

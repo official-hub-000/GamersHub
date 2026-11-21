@@ -161,7 +161,11 @@ object SupportDiagnostics {
 
     // ------------------------------------------------------------------ network
 
-    private data class Network(val ip: String, val region: String, val status: String)
+    /**
+     * Result of the one network call. Public because [lookupNetwork] is public: the
+     * compiler rightly refuses a public function that returns a private type.
+     */
+    data class Network(val ip: String, val region: String, val status: String)
 
     /**
      * Public IP and coarse region.
