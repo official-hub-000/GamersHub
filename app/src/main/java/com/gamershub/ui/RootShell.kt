@@ -106,6 +106,7 @@ import com.gamershub.ui.sheets.SettingsSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.gamershub.BuildConfig
 
 enum class Tab(val icon: ImageVector, val label: String) {
     LOBBY(GhIcons.Gamepad, "Lobby"),
@@ -440,7 +441,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             com.gamershub.GamersHubApp.step("tab:${tabTarget.name}")
             when (tabTarget) {
                 Tab.PROFILE -> ProfileScreen(
-                    version = "6.10.2",
+                    version = BuildConfig.VERSION_NAME,
                     sessionTime = sessionTime,
                     cpu = cpu, mem = mem, storage = storage, ping = ping,
                     envLevel = envLevel, envScore = envScore,
@@ -450,7 +451,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                 Tab.LOBBY -> LobbyScreen(
                     cpuPct = cpu.pct,
                     library = library,
-                    version = "6.10.2",
+                    version = BuildConfig.VERSION_NAME,
                     playMinutes = { pkg -> repo.playMinutes(pkg) },
                     libraryCount = library.size,
                     onSelectApps = { sheet = SheetState.AppSelector },

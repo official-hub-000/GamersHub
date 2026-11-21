@@ -33,6 +33,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import com.gamershub.core.adb.ShellDaemon
 import com.gamershub.core.adb.WirelessAdb
 import com.gamershub.ui.components.AIcon
@@ -77,6 +82,39 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
     var message by remember { mutableStateOf("") }
     var port by remember { mutableStateOf(WirelessAdb.shellPort) }
     var manualPort by remember { mutableStateOf("") }
+
+    // A13+ requires the Nearby devices permission (neverForLocation) before NSD will
+    // answer at all — without it the auto-detect path can never succeed. The request
+    // is asked only when a discovery-dependent action is taken, and the manual-port
+    // path stays usable without it.
+    val needsNearby = remember { Build.VERSION.SDK_INT >= 33 }
+    var nearbyGranted by remember {
+        mutableStateOf(
+            !needsNearby ||
+                context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var pendingDiscovery by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val nearbyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        nearbyGranted = granted
+        if (granted) {
+            pendingDiscovery?.invoke()
+        } else {
+            message = "Auto-detect needs Nearby devices permission — or type the pairing port and tap again."
+        }
+        pendingDiscovery = null
+    }
+
+    fun ensureDiscovery(block: () -> Unit) {
+        if (nearbyGranted) {
+            block()
+        } else {
+            pendingDiscovery = block
+            nearbyLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+    }
 
     val connected = status == WirelessAdb.Status.CONNECTED
 
@@ -252,6 +290,37 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
 
+            if (needsNearby && !nearbyGranted) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RomKit.R18)
+                        .background(RomKit.Panel)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        "Auto-detect permission",
+                        color = GC.Text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "Nearby devices",
+                        color = accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(accent.copy(alpha = 0.16f))
+                            .clickable { nearbyLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
             TextField(
                 value = code,
                 onValueChange = { input ->
@@ -314,29 +383,31 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         return@BigButton
                     }
                     if (busy.isNotBlank()) return@BigButton
-                    scope.launch {
-                        busy = "Looking for adbd…"
-                        val manual = manualPort.toIntOrNull() ?: 0
-                        val paired = withContext(Dispatchers.IO) {
-                            WirelessAdb.pair(context, code, manual)
-                        }
-                        if (!paired.first) {
+                    ensureDiscovery {
+                        scope.launch {
+                            busy = "Looking for adbd…"
+                            val manual = manualPort.toIntOrNull() ?: 0
+                            val paired = withContext(Dispatchers.IO) {
+                                WirelessAdb.pair(context, code, manual)
+                            }
+                            if (!paired.first) {
+                                busy = ""
+                                message = paired.second
+                                refresh()
+                                return@launch
+                            }
+                            busy = "Paired. Opening the shell…"
+                            val conn = withContext(Dispatchers.IO) {
+                                WirelessAdb.connect(context)
+                            }
                             busy = ""
-                            message = paired.second
+                            message = if (conn.first) {
+                                "Connected — all Shizuku features are live. ${conn.second}"
+                            } else {
+                                conn.second
+                            }
                             refresh()
-                            return@launch
                         }
-                        busy = "Paired. Opening the shell…"
-                        val conn = withContext(Dispatchers.IO) {
-                            WirelessAdb.connect(context)
-                        }
-                        busy = ""
-                        message = if (conn.first) {
-                            "Connected — all Shizuku features are live. ${conn.second}"
-                        } else {
-                            conn.second
-                        }
-                        refresh()
                     }
                 },
                 primary = true,
@@ -377,20 +448,27 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                     text = "ALREADY PAIRED · CONNECT",
                     onClick = {
                         if (busy.isNotBlank()) return@BigButton
-                        scope.launch {
-                            busy = "Finding the current port…"
-                            val manual = manualPort.toIntOrNull() ?: 0
-                            val res = withContext(Dispatchers.IO) {
-                                if (manual > 0) {
-                                    WirelessAdb.connect(context, 10_000, manual)
-                                } else {
-                                    WirelessAdb.discover(context)
-                                    WirelessAdb.connect(context)
+                        val manual = manualPort.toIntOrNull() ?: 0
+                        fun connectNow() {
+                            scope.launch {
+                                busy = "Finding the current port…"
+                                val res = withContext(Dispatchers.IO) {
+                                    if (manual > 0) {
+                                        WirelessAdb.connect(context, 10_000, manual)
+                                    } else {
+                                        WirelessAdb.discover(context)
+                                        WirelessAdb.connect(context)
+                                    }
                                 }
+                                busy = ""
+                                message = if (res.first) "Connected — ${res.second}" else res.second
+                                refresh()
                             }
-                            busy = ""
-                            message = if (res.first) "Connected — ${res.second}" else res.second
-                            refresh()
+                        }
+                        if (manual > 0) {
+                            connectNow()
+                        } else {
+                            ensureDiscovery(::connectNow)
                         }
                     },
                     primary = false,

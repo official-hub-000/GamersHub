@@ -38,7 +38,7 @@ Download it, install it (allow "install unknown apps"), open it, and let the int
 | **Quick Boost** | Kills background processes, drops caches, frees RAM, reports the freed megabytes | partly Shizuku |
 | **Game Space** | Landscape in-game hub with the game card, live stats, Control Center and per-game texture filtering | Overlay |
 | **Shizuku activation** | Real permission flow, real user-service shell (`sh -c` as shell/uid 2000), graceful fallback when absent | Shizuku |
-| **Themes** | Four accent palettes, animated icons everywhere, spring-driven toggles and gauges | — |
+| **Themes** | Six accent tones plus a custom slider colour, animated icons everywhere, spring-driven toggles and gauges | — |
 
 Everything that needs system rights degrades honestly: the UI says *"Needs Shizuku"* instead of pretending.
 

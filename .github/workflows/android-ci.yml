@@ -81,6 +81,11 @@ jobs:
 
       # Cheap static gates, before the expensive build: a forgotten journal entry
       # should fail in seconds, not after a Gradle run.
+      # The master engine promises that OFF leaves nothing running. Enforce it,
+      # same as the release pipeline does.
+      - name: Verify master-engine teardown coverage
+        run: python3 tools/check_engine_coverage.py
+
       - name: Verify restore coverage
         run: python3 tools/check_restore_coverage.py
 
@@ -96,6 +101,20 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+
+      # Same payload check the release pipeline enforces: the DFRoot payload
+      # must survive the exact packaging path that ships.
+      - name: Verify embedded DFRoot payload is packaged (debug APK)
+        run: |
+          set -e
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          echo "--- native libraries in debug APK ---"
+          unzip -Z1 "$APK" | grep -E '^lib/arm64-v8a/lib(dfroot|bootstrap)\.so$' | sort
+          for lib in libdfroot.so libbootstrap.so; do
+            unzip -Z1 "$APK" | grep -qx "lib/arm64-v8a/$lib" \
+              || { echo "::error::$lib missing from debug APK"; exit 1; }
+          done
+          echo "OK: debug APK contains libdfroot.so + libbootstrap.so"
 
       - name: Report errors as annotations
         if: failure()
