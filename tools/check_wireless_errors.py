@@ -49,7 +49,33 @@ def check() -> list[str]:
                     f"setting lastError"
                 )
 
-    # 3. The sheet must render lastError somewhere.
+    # 3. Pairing must have a bundled TLS 1.3 provider to export keying material from.
+    #    Without it the client falls back to the platform's hidden copy, whose
+    #    exportKeyingMaterial is blocklisted on recent Android — pairing dies at the
+    #    handshake with NoSuchMethodException and the feature looks simply broken.
+    gradle = (ROOT / "app/build.gradle.kts").read_text()
+    toml = (ROOT / "gradle/libs.versions.toml").read_text()
+    if "conscrypt" not in toml or "conscrypt.android" not in gradle:
+        problems.append(
+            "no bundled Conscrypt: pairing will fall back to "
+            "com.android.org.conscrypt.exportKeyingMaterial, a blocklisted hidden API "
+            "that throws NoSuchMethodException on recent Android (tested: Android 16)"
+        )
+
+    # 4. And the pairing client must not ask the platform class first.
+    pairing = (ROOT / "app/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java").read_text()
+    if '"org.conscrypt.Conscrypt"' not in pairing:
+        problems.append(
+            "PairingConnectionCtx does not probe the bundled org.conscrypt.Conscrypt; "
+            "it would use the hidden platform class and fail on Android 16"
+        )
+    if pairing.find('"org.conscrypt.Conscrypt"') > pairing.find('"com.android.org.conscrypt.Conscrypt"'):
+        problems.append(
+            "PairingConnectionCtx probes the platform Conscrypt before the bundled one — "
+            "the blocklisted class would be hit first"
+        )
+
+    # 5. The sheet must render lastError somewhere.
     for sheet in (ROOT / "app/src/main/java/com/gamershub/ui/sheets").glob("WirelessAdbSheet.kt"):
         text = sheet.read_text()
         if "lastError" not in text:

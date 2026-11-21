@@ -187,6 +187,7 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                                     WirelessAdb.Status.NOT_PAIRED,
                                     WirelessAdb.Status.UNAUTHORISED -> Color(0xFFE0A33A)
                                     WirelessAdb.Status.OFF -> Color(0xFF6B7280)
+                                    WirelessAdb.Status.UNSUPPORTED -> Color(0xFFD9534F)
                                 }
                             )
                     )

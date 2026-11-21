@@ -14,6 +14,7 @@ kotlinxSerialization = "1.7.3"
 okhttp = "4.12.0"
 shizuku = "13.1.5"
 bouncycastle = "1.81"
+conscrypt = "2.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -47,6 +48,15 @@ shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref
 # ADB pairing (wireless debugging) needs AES-GCM, HKDF-SHA256 and SHA-256; ADB's
 # pairing protocol is not reachable with JCA alone, so the crypto comes from here.
 bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.ref = "bouncycastle" }
+
+# Pairing needs TLS 1.3 *keying material export*, which is the one call ADB's pairing
+# tunnel cannot do without. The platform's copy of that method
+# (com.android.org.conscrypt.Conscrypt#exportKeyingMaterial) is on the non-SDK blocklist
+# and is not invocable on Android 16: reflection throws NoSuchMethodException, pairing
+# fails at the handshake, and the app can only report "wireless debugging off".
+# Bundling Conscrypt makes SslUtils find org.conscrypt first and never reach for the
+# hidden class. Same library, same arm our licence already covers.
+conscrypt-android = { group = "org.conscrypt", name = "conscrypt-android", version.ref = "conscrypt" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -153,30 +153,73 @@ public final class PairingConnectionCtx implements Closeable {
         this.mPairingAuthCtx = pairingAuthCtx;
     }
 
+    /**
+     * TLS 1.3 exported keying material — the one call ADB's pairing tunnel cannot do
+     * without. Both peers append it to the pairing password so that a connection
+     * cannot be relayed by a third party mid-pairing.
+     *
+     * ## Why the lookup order matters more than the call
+     *
+     * The platform's own copy lives at {@code com.android.org.conscrypt.Conscrypt}.
+     * {@code exportKeyingMaterial} is on the non-SDK interface blocklist, so on recent
+     * releases reflection into the platform copy fails with
+     * {@code NoSuchMethodException} even though the method is present. Pairing then
+     * dies at the handshake, i.e. <em>before</em> the six-digit code is ever sent, and
+     * the closest thing the UI can say is "wireless debugging off" — which is exactly
+     * how a user ends up re-pairing, rebooting and reinstalling for nothing.
+     *
+     * The bundled Conscrypt (org.conscrypt, a dependency of this app) has the same
+     * method as ordinary public API. So it is probed first, by name, whether or not
+     * {@link SslUtils} believes the custom provider won the SSLContext race: the two
+     * questions — "which provider built my socket" and "which provider can I ask for
+     * keying material" — are the same answer today, but only one of them is a fact we
+     * can check before the socket exists.
+     *
+     * The platform class stays last, for devices where nothing else is available and
+     * the blocklist does not apply.
+     */
     @SuppressLint("PrivateApi") // Conscrypt is a stable private API
     private byte[] exportKeyingMaterial(SSLSocket sslSocket, int length) throws SSLException {
         // Conscrypt#exportKeyingMaterial(SSLSocket socket, String label, byte[] context, int length): byte[]
         //          throws SSLException
-        try {
-            Class<?> conscryptClass;
-            if (SslUtils.isCustomConscrypt()) {
-                conscryptClass = Class.forName("org.conscrypt.Conscrypt");
-            } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                // Although support for conscrypt has been added in Android 5.0 (Lollipop),
-                // TLS1.3 isn't supported until Android 9 (Pie).
-                throw new SSLException("TLSv1.3 isn't supported on your platform. Use custom Conscrypt library instead.");
-            } else {
-                conscryptClass = Class.forName("com.android.org.conscrypt.Conscrypt");
+        Throwable last = null;
+        for (String className : CANDIDATE_CONSCRYPT) {
+            try {
+                Class<?> conscryptClass = Class.forName(className);
+                Method exportKeyingMaterial = conscryptClass.getMethod("exportKeyingMaterial",
+                        SSLSocket.class, String.class, byte[].class, int.class);
+                byte[] material = (byte[]) exportKeyingMaterial.invoke(null, sslSocket,
+                        EXPORTED_KEY_LABEL, null, length);
+                if (material != null && material.length == length) {
+                    Log.d(TAG, "Exported keying material via " + className);
+                    return material;
+                }
+                last = new SSLException("exportKeyingMaterial returned " +
+                        (material == null ? "null" : material.length + " bytes") + " from " + className);
+            } catch (Throwable th) {
+                // NoSuchMethodException / IllegalAccessException / ClassNotFoundException:
+                // this provider cannot answer. Try the next one rather than failing the
+                // pairing, which is what used to happen on the platform copy alone.
+                last = th;
+                Log.d(TAG, "exportKeyingMaterial via " + className + " unavailable: " + th);
             }
-            Method exportKeyingMaterial = conscryptClass.getMethod("exportKeyingMaterial", SSLSocket.class,
-                    String.class, byte[].class, int.class);
-            return (byte[]) exportKeyingMaterial.invoke(null, sslSocket, EXPORTED_KEY_LABEL, null, length);
-        } catch (SSLException e) {
-            throw e;
-        } catch (Throwable th) {
-            throw new SSLException(th);
         }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // Although support for conscrypt has been added in Android 5.0 (Lollipop),
+            // TLS1.3 isn't supported until Android 9 (Pie).
+            throw new SSLException("TLSv1.3 isn't supported on your platform. Use custom Conscrypt library instead.");
+        }
+        throw new SSLException("No TLS provider could export keying material, so pairing " +
+                "cannot complete (this build is missing its bundled Conscrypt)", last);
     }
+
+    /**
+     * Bundled first, platform last. See {@link #exportKeyingMaterial}.
+     */
+    private static final String[] CANDIDATE_CONSCRYPT = {
+            "org.conscrypt.Conscrypt",
+            "com.android.org.conscrypt.Conscrypt",
+    };
 
     private void writeHeader(@NonNull PairingPacketHeader header, @NonNull byte[] payload) throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(PairingPacketHeader.PAIRING_PACKET_HEADER_SIZE)

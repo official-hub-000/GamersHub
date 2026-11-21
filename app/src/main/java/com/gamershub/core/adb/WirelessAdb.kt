@@ -78,6 +78,16 @@ object WirelessAdb {
 
         /** Socket up, identity accepted, shell usable. */
         CONNECTED,
+
+        /**
+         * The device is reachable but this app could not complete the TLS pairing
+         * handshake — a fault in the bundled crypto, not in the phone.
+         *
+         * Kept separate from [OFF] on purpose: every remedy for [OFF] (turn wireless
+         * debugging off and on, re-pair, reboot) is useless here, and telling the user
+         * to try them is what wasted their time in the first place.
+         */
+        UNSUPPORTED,
     }
 
     /** What the UI shows. Mirrors Shizuku's four states so the two read the same. */
@@ -134,6 +144,7 @@ object WirelessAdb {
         Status.NOT_PAIRED -> "Pair needed"
         Status.UNAUTHORISED -> "Not authorised"
         Status.OFF -> "Wireless debugging off"
+        Status.UNSUPPORTED -> "Pairing unsupported here"
     }
 
     /**
@@ -222,7 +233,10 @@ object WirelessAdb {
                 false to lastError
             }
         } catch (t: Throwable) {
-            lastError = t.message ?: "pairing failed"
+            // Not "pairing failed": either the code was wrong (the user can fix that) or
+            // our crypto refused (the user cannot). remedy() is what tells them apart.
+            lastError = remedy(t)
+            status = classify(t)
             false to lastError
         }
     }
@@ -260,6 +274,7 @@ object WirelessAdb {
                 val candidates = candidatePorts(context)
                 var result: Pair<Boolean, String>? = null
                 var unpaired = false
+                var cryptoFailure: String? = null
                 for (candidate in candidates) {
                     val r = tryPort(context, candidate)
                     if (r == null) continue
@@ -273,9 +288,17 @@ object WirelessAdb {
                         else fail(Status.NOT_PAIRED, r.second)
                         break
                     }
+                    if (isCryptoFailure(r.second)) {
+                        cryptoFailure = remedy(java.io.IOException(r.second))
+                    }
                     if (r.second.contains("pair", ignoreCase = true) ||
                         r.second.contains("unauthor", ignoreCase = true)
                     ) unpaired = true
+                }
+                if (result == null && cryptoFailure != null) {
+                    // Retrying the next port cannot fix a TLS provider that is missing
+                    // its keying-material export, so this is reported as what it is.
+                    return fail(Status.UNSUPPORTED, cryptoFailure)
                 }
                 result ?: if (unpaired) {
                     fail(Status.NOT_PAIRED, "adbd refused this identity. Use the pairing code from " +
@@ -393,19 +416,44 @@ object WirelessAdb {
     }
 
     private fun classify(t: Throwable): Status {
-        val msg = t.message ?: ""
+        val msg = (t.message ?: "") + " " + (t.cause?.toString() ?: "")
         return when {
+            isCryptoFailure(msg) -> Status.UNSUPPORTED
             msg.contains("pair", true) || msg.contains("unauthor", true) ||
                 msg.contains("authentication", true) -> Status.NOT_PAIRED
             else -> Status.OFF
         }
     }
 
+    /**
+     * True when the failure is in this app's TLS/pairing crypto rather than on the wire.
+     *
+     * The distinction is the difference between advice that can work and advice that
+     * cannot: a crypto failure is not fixed by re-pairing, restarting wireless
+     * debugging or rebooting, so it must never be reported as "not paired" or as "off".
+     */
+    private fun isCryptoFailure(msg: String): Boolean =
+        msg.contains("NoSuchMethodException", true) ||
+            msg.contains("exportKeyingMaterial", true) ||
+            msg.contains("keying material", true) ||
+            msg.contains("SSLException", true) ||
+            msg.contains("TLSv1.3", true) ||
+            msg.contains("Conscrypt", true)
+
     private fun remedy(t: Throwable): String {
-        val msg = t.message ?: "connection failed"
+        val msg = (t.message ?: "") + " " + (t.cause?.toString() ?: "")
+        if (isCryptoFailure(msg)) {
+            // Deliberately says "this build", because that is the truth: the device is
+            // fine, the pairing crypto in the APK could not reach a usable TLS provider.
+            return "Pairing needs TLS keying material and this Android build refused it " +
+                "(${t.cause?.javaClass?.simpleName ?: t.javaClass.simpleName}). Wireless debugging " +
+                "itself is fine — this is a GamersHub build fault, not something re-pairing or " +
+                "rebooting can fix. Please report it with this line."
+        }
         return when (classify(t)) {
             Status.NOT_PAIRED -> "adbd refused this identity — pair again with the code from Settings"
-            else -> "adbd did not answer: $msg. Turn Wireless debugging off and on, then connect again."
+            else -> "adbd did not answer: ${t.message ?: "connection failed"}. Turn Wireless " +
+                "debugging off and on, then connect again."
         }
     }
 

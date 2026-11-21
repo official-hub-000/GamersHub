@@ -18,8 +18,8 @@ android {
         applicationId = "com.gamershub"
         minSdk = 26
         targetSdk = 35
-        versionCode = 111
-        versionName = "6.35.2"
+        versionCode = 112
+        versionName = "6.35.3"
         ndk { abiFilters += listOf("arm64-v8a") }
         vectorDrawables { useSupportLibrary = true }
     }
@@ -132,5 +132,10 @@ dependencies {
     // Wireless-debugging ADB client (vendored under io.github.muntashirakon.adb,
     // Apache-2.0 arm of its dual licence) needs pairing crypto.
     implementation(libs.bouncycastle.prov)
+    // TLS 1.3 keying-material export for pairing. Without this the client falls back to
+    // com.android.org.conscrypt, whose exportKeyingMaterial is hidden API and refuses to
+    // be called on Android 16 — NoSuchMethodException, pairing dead, "wireless
+    // debugging off" on screen no matter what the user does.
+    implementation(libs.conscrypt.android)
 
 }

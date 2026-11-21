@@ -149,7 +149,7 @@ object Manual {
                 "On Android 13+ allow Nearby devices when asked — without it discovery cannot answer.",
                 "If the port changed (wireless debugging toggled, or the phone rebooted), tap Connect again: the app drops the dead port and rediscovers."
             ),
-            note = "A failed pair is almost always a closed dialog or a stale code. A failed *connect* is usually a changed port — reopen Wireless debugging to read the current port. Either way the sheet now names which one it was; you should not have to reinstall.",
+            note = "A failed pair is almost always a closed dialog or a stale code. A failed *connect* is usually a changed port — reopen Wireless debugging to read the current port. If the sheet says \"Pairing unsupported here\", neither applies: the phone is fine and the app's TLS stack could not export keying material, which is a build fault to report, not something to re-pair or reboot for.",
             sheet = "wireless",
         ),
         HelpTopic(
