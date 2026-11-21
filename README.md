@@ -37,6 +37,9 @@ Download it, install it (allow "install unknown apps"), open it, and let the int
 | **Screenshot** | Real `screencap` through shell identity into `Pictures/GamersHub`, verified on disk | Shizuku |
 | **Quick Boost** | Kills background processes, drops caches, frees RAM, reports the freed megabytes | partly Shizuku |
 | **Game Space** | Landscape in-game hub with the game card, live stats, Control Center and per-game texture filtering | Overlay |
+| **User manual** | Every feature written down in-app: what it does, the exact taps, the caveat — searchable by name or by problem | — |
+| **Global search** | One bar on the Lobby and in Tools: type "lag", "fps", "pair" or a feature name and jump straight to its page or its screen | — |
+| **Issue reporter** | Opens by itself when anything fails, shows the full error log with the steps that led there, and sends it (share, copy, file or prefilled GitHub issue) with the build and phone details | — |
 | **Shizuku activation** | Real permission flow, real user-service shell (`sh -c` as shell/uid 2000), graceful fallback when absent | Shizuku |
 | **Themes** | Six accent tones plus a custom slider colour, animated icons everywhere, spring-driven toggles and gauges | — |
 

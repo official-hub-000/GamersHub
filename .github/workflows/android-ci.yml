@@ -97,6 +97,12 @@ jobs:
       - name: Verify the APK stays installable on future Android
         run: python3 tools/check_install_future.py
 
+      # The manual is a data table: a renamed feature can silently drop out of
+      # search. This gate fails when a title on screen is not described, or a sheet
+      # the UI can open has no page pointing at it.
+      - name: Verify the user manual covers every feature
+        run: python3 tools/check_manual_coverage.py
+
       - name: Build debug APK
         run: |
           set -o pipefail

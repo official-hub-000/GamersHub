@@ -54,6 +54,21 @@ class GamersHubApp : Application() {
             runCatching { lastCrash = "$where\n" + error.stackTraceToString() }
         }
 
+        /**
+         * A feature that failed *without* throwing.
+         *
+         * "I tapped it and nothing happened" is the most common report and it used to
+         * leave no trace at all — the toast vanished and the log stayed empty, so the
+         * report had nothing in it. This writes one short entry with the breadcrumb
+         * trail, which is also what makes the reporter open by itself for this case.
+         */
+        fun problem(where: String, message: String) {
+            val ctx = instance ?: return
+            runCatching { ctx.logProblem(where, message) }
+            lastCrash = "$where: $message"
+            toast(message)
+        }
+
         /** Safe toast from any thread — used so a failed action is never silent. */
         fun toast(message: String) {
             val ctx = instance ?: return
@@ -126,6 +141,22 @@ class GamersHubApp : Application() {
             val cm = getSystemService(ClipboardManager::class.java) ?: return
             cm.setPrimaryClip(ClipData.newPlainText("GamersHub stop", text))
         }
+    }
+
+    /**
+     * Non-fatal failure entry. Same file and same shape as a crash, minus the stack
+     * trace: the reporter reads both with one parser.
+     */
+    private fun logProblem(where: String, message: String) {
+        val file = File(filesDir, "crash.log")
+        if (file.exists() && file.length() > 512 * 1024) file.delete()
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val line = buildString {
+            append("\n=== ").append(stamp).append(" · ").append(where).append(" ===\n")
+            append("steps: ").append(stepsText()).append('\n')
+            append("note: ").append(message).append('\n')
+        }
+        runCatching { file.appendText(line) }
     }
 
     private fun log(thread: Thread, error: Throwable) {

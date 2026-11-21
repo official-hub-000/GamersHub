@@ -143,6 +143,12 @@ sealed interface SheetState {
     data object PanelHub : SheetState
     data object EngineOff : SheetState
     data object LogoLaunch : SheetState
+
+    /** The in-app user manual and global search — one screen, two modes. */
+    data class Help(val topic: String = "") : SheetState
+
+    /** Issue reporter: opens by itself on a failure, or by hand with an optional note. */
+    data class Report(val note: String = "") : SheetState
 }
 
 /** Root shell: tabs, octagon nav, sheets, live state. */
@@ -348,6 +354,10 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             "apps" -> SheetState.AppSelector
             "engineoff" -> SheetState.EngineOff
             "logolaunch" -> SheetState.LogoLaunch
+            // The manual, the search bar and the reporter are all reachable by key so
+            // the floating panel and shortcuts can open them like any other sheet.
+            "manual", "help", "search" -> SheetState.Help()
+            "report" -> SheetState.Report()
             else -> SheetState.None
         }
 
@@ -446,7 +456,9 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     cpu = cpu, mem = mem, storage = storage, ping = ping,
                     envLevel = envLevel, envScore = envScore,
                     onPrivilege = { sheet = SheetState.Activation },
-                    onSettings = { sheet = SheetState.Settings }
+                    onSettings = { sheet = SheetState.Settings },
+                    onManual = { sheet = SheetState.Help() },
+                    onReport = { sheet = SheetState.Report() }
                 )
                 Tab.LOBBY -> LobbyScreen(
                     cpuPct = cpu.pct,
@@ -470,6 +482,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                         com.gamershub.core.shizuku.Shell.available() -> "Shizuku"
                         else -> "app only"
                     },
+                    onSearch = { sheet = SheetState.Help() },
                     onEngineToggle = {
                         if (com.gamershub.core.Engine.isOn) {
                             // Destructive: the confirmation sheet lists exactly what
@@ -621,6 +634,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                                 context.startActivity(Intent(Settings.ACTION_LOCALE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                             }
                         },
+                        onReport = { sheet = SheetState.Report() },
                         onDismiss = { sheet = SheetState.None }
                     )
                     SheetState.Presets -> PresetsSheet(
@@ -752,118 +766,52 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     SheetState.PanelHub -> com.gamershub.ui.sheets.OverlayHubSheet(
                         onDismiss = { sheet = SheetState.None }
                     )
+                    is SheetState.Help -> com.gamershub.ui.sheets.ManualSheet(
+                        onDismiss = { sheet = SheetState.None },
+                        openTopicId = current.topic.ifBlank { null },
+                        // "Open it for me" is a real jump: the manual closes and the
+                        // feature's own sheet opens, or the tab it lives on.
+                        onOpenFeature = { topic ->
+                            val key = topic.sheet
+                            when {
+                                // A sheet key of its own (a feature with a screen).
+                                key.isNotBlank() -> sheet = sheetFor(key)
+                                // A tab page (Lobby, Lab Bench, Tools, Root, Profile).
+                                topic.tab.isNotBlank() -> {
+                                    Tab.entries.firstOrNull { it.name == topic.tab }?.let { tab = it }
+                                    sheet = SheetState.None
+                                }
+                                // A "how to fix it" page: close the manual, stay put.
+                                else -> sheet = SheetState.None
+                            }
+                        }
+                    )
+                    is SheetState.Report -> com.gamershub.ui.sheets.ReportSheet(
+                        onDismiss = { sheet = SheetState.None },
+                        initialNote = current.note
+                    )
                     SheetState.None -> {}
                 }
             }
         }
 
-        // A failure now leaves a card with the actual words and a way to send them on.
-        val crashAtLaunch = remember {
-            runCatching {
-                val f = java.io.File(context.filesDir, "crash.log")
-                if (f.exists() && System.currentTimeMillis() - f.lastModified() < 30 * 60 * 1000L)
-                    f.readText().trim().takeLast(2600) else ""
-            }.getOrDefault("")
+        // ------------------------------------------------------------ failure reporter
+        // A caught failure used to leave the user on a card with no exit. Now the
+        // reporter opens by itself with the log already inside it, and the log can be
+        // sent from there. It is polled rather than checked once, because a feature can
+        // break halfway through a session without the process dying.
+        var autoReport by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                if (com.gamershub.core.IssueReporter.shouldAutoOpen(context)) autoReport = true
+                delay(4000)
+            }
         }
-        var showCrash by remember { mutableStateOf(crashAtLaunch.isNotBlank()) }
-        if (showCrash) {
-            val crashSteps = remember(crashAtLaunch) {
-                crashAtLaunch.lineSequence().firstOrNull { it.startsWith("steps:") }.orEmpty()
-            }
-            val crashHead = remember(crashAtLaunch) {
-                crashAtLaunch.lineSequence()
-                    .filterNot { it.startsWith("steps:") || it.startsWith("===") }
-                    .joinToString("\n")
-                    .trim()
-            }
-            Box(
-                Modifier.fillMaxSize().background(Color(0xF2000000)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(GC.Surface)
-                        .padding(18.dp)
-                ) {
-                    Text(
-                        "It stopped here",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = GC.Text,
-                        fontSize = 21.sp
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Copy or send this on — it names the exact step that failed.",
-                        color = GC.TextDim,
-                        fontSize = 12.sp
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    androidx.compose.foundation.text.selection.SelectionContainer {
-                        Text(
-                            crashHead.ifBlank { "no details were written" },
-                            color = GC.TextSoft,
-                            fontSize = 11.sp,
-                            modifier = Modifier
-                                .heightIn(max = 230.dp)
-                                .verticalScroll(rememberScrollState())
-                        )
-                    }
-                    if (crashSteps.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            crashSteps.removePrefix("steps: ").trim(),
-                            color = GC.TextDim,
-                            fontSize = 9.sp,
-                            maxLines = 3
-                        )
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BigButton(
-                            text = "Grab text",
-                            onClick = {
-                                runCatching {
-                                    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                                    cm?.setPrimaryClip(
-                                        android.content.ClipData.newPlainText(
-                                            "GamersHub error",
-                                            crashAtLaunch.ifBlank { crashHead }
-                                        )
-                                    )
-                                    Toast.makeText(context, "Text grabbed", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        BigButton(
-                            text = "Pass on",
-                            onClick = {
-                                runCatching {
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_SUBJECT, "GamersHub error report")
-                                        putExtra(Intent.EXTRA_TEXT, crashAtLaunch.ifBlank { crashHead })
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(send, "Send the error").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    )
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            primary = false
-                        )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    BigButton(
-                        text = "Shut",
-                        onClick = { showCrash = false },
-                        modifier = Modifier.fillMaxWidth(),
-                        primary = false
-                    )
-                }
+        // Never fight with a sheet the user opened themselves — wait for it to close.
+        LaunchedEffect(autoReport, sheet) {
+            if (autoReport && sheet == SheetState.None) {
+                sheet = SheetState.Report()
+                autoReport = false
             }
         }
 

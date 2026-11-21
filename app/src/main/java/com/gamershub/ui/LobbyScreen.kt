@@ -56,6 +56,8 @@ fun LobbyScreen(
     onGameTap: (InstalledApp) -> Unit,
     /** Tapping the emblem (or PLAY ROOM) opens the slide-to-enter sheet. */
     onGameSpace: () -> Unit,
+    /** Opens the global search / user manual. */
+    onSearch: () -> Unit = {},
     /** Master engine: whether anything is allowed to run. */
     engineOn: Boolean,
     engineChannel: String,
@@ -93,6 +95,80 @@ fun LobbyScreen(
                 Box(Modifier.size(7.dp).clip(CircleShape).background(accent))
                 Spacer(Modifier.width(8.dp))
                 Text("Here", style = MaterialTheme.typography.labelLarge, color = GC.TextSoft, fontSize = 14.sp)
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // ---- Global search -----------------------------------------------------
+        // One field that reaches every feature, setting and help page. It reads as a
+        // search box but it is the manual's front door on purpose: a user who types
+        // "lag" should be able to *read* what to do, not just be teleported to a sheet.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RomKit.R12)
+                .background(RomKit.Panel)
+                .border(1.dp, RomKit.Stroke, RomKit.R12)
+                .clickable(onClick = onSearch)
+                .padding(horizontal = 13.dp, vertical = 12.dp)
+        ) {
+            AIcon(GhIcons.Search, contentDescription = "Search", tint = accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Search anything — feature, setting or help",
+                style = MaterialTheme.typography.labelMedium,
+                color = GC.TextDim,
+                fontSize = 13.sp,
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                Modifier
+                    .clip(RomKit.R10)
+                    .background(RomKit.Panel2)
+                    .border(1.dp, RomKit.Stroke, RomKit.R10)
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text("MANUAL", style = RomKit.LabelSm, color = RomKit.TextLo)
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // ---- Global search -----------------------------------------------------
+        // One door to every feature, every setting and every help page. It reads as a
+        // search field but it opens the manual, so a user who types "lag" can *read*
+        // what to do instead of being dropped somewhere they cannot explain later.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RomKit.R12)
+                .background(RomKit.Panel)
+                .border(1.dp, RomKit.Stroke, RomKit.R12)
+                .clickable(onClick = onSearch)
+                .padding(horizontal = 13.dp, vertical = 12.dp)
+        ) {
+            AIcon(GhIcons.Search, contentDescription = "Search", tint = accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Search anything — feature, setting or help",
+                style = MaterialTheme.typography.labelMedium,
+                color = GC.TextDim,
+                fontSize = 13.sp,
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                Modifier
+                    .clip(RomKit.R10)
+                    .background(RomKit.Panel2)
+                    .border(1.dp, RomKit.Stroke, RomKit.R10)
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text("MANUAL", style = RomKit.LabelSm, color = RomKit.TextLo)
             }
         }
 

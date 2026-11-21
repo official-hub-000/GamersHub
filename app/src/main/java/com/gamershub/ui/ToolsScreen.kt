@@ -163,6 +163,30 @@ fun ToolsScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        // ---- HELP: the two entry points that always lead somewhere -------------
+        SectionHead("HELP")
+        ToolRow(
+            icon = GhIcons.Search,
+            title = "Search anything",
+            subtitle = "Every feature and every help page, findable by name",
+            active = false,
+            accent = accent,
+            onToggle = null,
+            onConfig = { onOpenSheet("search") },
+            configLabel = "FIND"
+        )
+        ToolRow(
+            icon = GhIcons.Warning,
+            title = "Report a problem",
+            subtitle = "Sends the error log, build and phone details",
+            active = false,
+            accent = accent,
+            onToggle = null,
+            onConfig = { onOpenSheet("report") },
+            configLabel = "OPEN"
+        )
+        Spacer(Modifier.height(14.dp))
+
         // ---- MASTER ENGINE: one switch that owns root, Shizuku and every overlay.
         SectionHead("MASTER ENGINE")
         val engineOn = com.gamershub.core.Engine.isOn

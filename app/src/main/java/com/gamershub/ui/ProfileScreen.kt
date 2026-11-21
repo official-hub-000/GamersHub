@@ -60,7 +60,11 @@ fun ProfileScreen(
     envLevel: Int,
     envScore: Int,
     onPrivilege: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    /** Opens the in-app user manual. */
+    onManual: () -> Unit = {},
+    /** Opens the issue reporter with the log already attached. */
+    onReport: () -> Unit = {}
 ) {
     val accent = LocalAccent.current
     val context = LocalContext.current
@@ -88,6 +92,8 @@ fun ProfileScreen(
             }
             Spacer(Modifier.width(8.dp))
             StatusPill(version, orange = false)
+            Spacer(Modifier.width(8.dp))
+            CircleIconButton(GhIcons.Search, onClick = onManual)
             Spacer(Modifier.width(8.dp))
             CircleIconButton(GhIcons.Settings, onClick = onSettings)
         }
@@ -289,6 +295,55 @@ fun ProfileScreen(
             SegmentedBar(pct = if (ping in 0..120) 75 else if (ping > 0) 35 else 0, segments = 4, height = 10)
         }
 
+        SectionLabel("Help & Support")
+
+        // Two doors that always lead somewhere: the manual (every feature, searchable)
+        // and the reporter (a complete log in one tap). The old Support Us card pointed
+        // at a repository that is not the one this app ships from, so a report sent from
+        // it was never read.
+        Card {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RomKit.R12)
+                    .clickable(onClick = onManual)
+                    .padding(vertical = 10.dp)
+            ) {
+                IconChip(GhIcons.Search, size = 40)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("User Manual", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 17.sp)
+                    Text(
+                        "Every feature, step by step — searchable",
+                        style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp
+                    )
+                }
+                Text("OPEN", color = accent, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+            Spacer(Modifier.height(2.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(GC.Stroke))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RomKit.R12)
+                    .clickable(onClick = onReport)
+                    .padding(vertical = 10.dp)
+            ) {
+                IconChip(GhIcons.Warning, size = 40)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Report a Problem", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 17.sp)
+                    Text(
+                        "Sends the error log, build and phone details",
+                        style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp
+                    )
+                }
+                Text("OPEN", color = accent, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+        }
+
         SectionLabel("Support Us!")
 
         Column(
@@ -312,12 +367,12 @@ fun ProfileScreen(
                 Spacer(Modifier.width(10.dp))
                 CircleIconButton(
                     GhIcons.Chat,
-                    onClick = { openLink(context, "https://github.com/spideycandy973-web/GamersHub/issues") }
+                    onClick = { com.gamershub.core.IssueReporter.openIssues(context) }
                 )
                 Spacer(Modifier.width(8.dp))
                 CircleIconButton(
                     GhIcons.MusicNote,
-                    onClick = { openLink(context, "https://github.com/spideycandy973-web/GamersHub/releases") }
+                    onClick = { openLink(context, "https://github.com/official-hub-000/GamersHub/releases") }
                 )
             }
         }

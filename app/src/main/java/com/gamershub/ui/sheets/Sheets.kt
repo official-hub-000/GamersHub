@@ -629,7 +629,9 @@ fun SettingsSheet(
     iconIndex: Int,
     onIcon: (Int) -> Unit,
     onLanguage: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Opens the issue reporter — the Health Look card uses it. */
+    onReport: () -> Unit = {}
 ) {
     val accent = LocalAccent.current
     var hue by remember {
@@ -775,13 +777,13 @@ fun SettingsSheet(
             }
         }
         Spacer(Modifier.height(12.dp))
-        DiagnosticsCard()
+        DiagnosticsCard(onReport)
     }
 }
 
 /** Last caught exception — so a crash can be reported instead of guessed at. */
 @Composable
-private fun DiagnosticsCard() {
+private fun DiagnosticsCard(onReport: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var log by remember {
         androidx.compose.runtime.mutableStateOf(
@@ -809,6 +811,17 @@ private fun DiagnosticsCard() {
             )
         }
         Spacer(Modifier.height(10.dp))
+        if (log.isNotBlank()) {
+            // The card already knows there was a failure: give it the one action that
+            // actually gets it fixed, instead of leaving the user to copy text by hand.
+            BigButton(
+                text = "Report it",
+                onClick = onReport,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = GhIcons.Warning
+            )
+            Spacer(Modifier.height(9.dp))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BigButton(
                 text = "Grab log",
@@ -827,7 +840,7 @@ private fun DiagnosticsCard() {
             BigButton(
                 text = "Wipe",
                 onClick = {
-                    runCatching { java.io.File(context.filesDir, "crash.log").delete() }
+                    runCatching { com.gamershub.core.IssueReporter.clearLog(context) }
                     log = ""
                 },
                 modifier = Modifier.weight(1f),
