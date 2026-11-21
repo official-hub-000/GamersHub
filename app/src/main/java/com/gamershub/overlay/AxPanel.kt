@@ -180,7 +180,7 @@ private fun rememberPanelStats(): PanelStats {
         var lastFrames: Long? = null
         var lastStamp = 0L
         while (true) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
             runCatching {
                 val cpu = DeviceStats.cpu()
                 val mem = DeviceStats.mem(context)
@@ -230,7 +230,7 @@ private fun rememberPanelStats(): PanelStats {
 private fun <T> rememberLive(initial: T, periodMs: Long = 3000, block: () -> T): T {
     val state by produceState(initialValue = initial) {
         while (true) {
-            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            value = withContext(Dispatchers.IO) {
                 runCatching { block() }.getOrDefault(value)
             }
             kotlinx.coroutines.delay(periodMs)
@@ -283,7 +283,16 @@ fun AxPanel(onClose: () -> Unit, onQuit: () -> Unit = onClose) {
             context = context,
             state = st,
             say = say,
-            work = { block -> scope.launch { st.busy = true; runCatching { block() }; st.busy = false } },
+            // Default dispatcher, not Main: these blocks call into the engine, adbd and
+            // the shell, which block on sockets. Running them on Main froze the panel's
+            // toast for seconds — and worse, an ANR there reads as "the app is dead".
+            work = {
+                scope.launch {
+                    st.busy = true
+                    runCatching { withContext(Dispatchers.IO) { block() } }
+                    st.busy = false
+                }
+            },
             nav = { page -> st.page = page },
             close = onClose
         )

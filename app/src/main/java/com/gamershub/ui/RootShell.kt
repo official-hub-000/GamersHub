@@ -105,6 +105,7 @@ import com.gamershub.ui.sheets.SheetFrame
 import com.gamershub.ui.sheets.SettingsSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.gamershub.BuildConfig
 
@@ -181,6 +182,8 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             com.gamershub.core.Engine.isOn
         }
         var sheet by remember { mutableStateOf<SheetState>(SheetState.None) }
+        // Engine.start() talks to adbd and the shell; it must never run on the UI thread.
+        val shellScope = androidx.compose.runtime.rememberCoroutineScope()
 
         var pendingLaunch by remember { mutableStateOf<InstalledApp?>(null) }
         var showIntro by remember { mutableStateOf(true) }
@@ -489,10 +492,18 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             // will be undone before anything is.
                             sheet = SheetState.EngineOff
                         } else {
-                            runCatching {
-                                com.gamershub.core.Engine.start(context, wantRoot = false)
-                            }
+                            // Engine.start() reconnects the wireless shell and can block on
+                            // a socket for seconds. On the UI thread that is a frozen tap;
+                            // off it, the switch answers immediately.
                             engineTick++
+                            shellScope.launch {
+                                withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        com.gamershub.core.Engine.start(context, wantRoot = false)
+                                    }
+                                }
+                                engineTick++
+                            }
                         }
                     }
                 )
@@ -1035,7 +1046,7 @@ private fun MonitorStrip(context: android.content.Context) {
     val accent = LocalAccent.current
     val stats by produceState(initialValue = listOf("--", "--", "--", "--", "--")) {
         while (true) {
-            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            value = withContext(Dispatchers.IO) {
                 val cpu = com.gamershub.data.DeviceStats.cpu()
                 val mem = com.gamershub.data.DeviceStats.mem(context)
                 val batt = com.gamershub.data.DeviceStats.battery(context)

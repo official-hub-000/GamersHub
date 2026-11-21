@@ -1788,11 +1788,16 @@ private fun ControlCenter(
                             com.gamershub.core.Engine.stopEverything(context)
                             memNote = "engine off · phone restored"
                         } else {
-                            com.gamershub.core.Engine.start(context, wantRoot = false)
-                            memNote = com.gamershub.core.Engine.statusLine(context)
+                            // Off the UI thread: this reconnects the wireless shell.
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    com.gamershub.core.Engine.start(context, wantRoot = false)
+                                }
+                                memNote = com.gamershub.core.Engine.statusLine(context)
+                                engineTick++
+                                onEngineChanged()
+                            }
                         }
-                        engineTick++
-                        onEngineChanged()
                     }
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {

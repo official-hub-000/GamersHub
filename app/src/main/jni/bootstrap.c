@@ -9,9 +9,11 @@
 #include <unistd.h>
 
 #define BLKROSET   0x125d
-#define KSUD_STAGE "/data/user_de/0/df.root/ksud"
+/* Same fix as lkm/dfroot.c: these are this APK's paths, not upstream's package
+ * name. The staged ksud and the prefs file both live under com.gamershub. */
+#define KSUD_STAGE "/data/user_de/0/com.gamershub/ksud"
 #define KSUD       "/data/adb/ksud"
-#define PREFS_PATH "/data/user_de/0/df.root/shared_prefs/dfroot.xml"
+#define PREFS_PATH "/data/user_de/0/com.gamershub/shared_prefs/dfroot.xml"
 #define MODULES_DIR "/data/adb/modules"
 
 static int pref_true(const char *buf, const char *key)

@@ -34,20 +34,57 @@ object DfRootRunner {
     private const val PREFS = "dfroot"
     private const val PREF_SU_MANAGER = "su_manager"
 
+    /** How much of the exploit output is kept for the report. */
+    private const val LOG_TAIL = 4000
+    private const val PREF_DISABLE_MODULES = "disable_modules"
+    private const val PREF_SOFT_REBOOT = "soft_reboot"
+
     data class Manager(
         val pkg: String,
         val label: String,
         val icon: Drawable?,
     )
 
-    /** True when this build actually contains the native payload (arm64-only builds). */
-    fun payloadPresent(context: Context): Boolean =
-        runCatching {
-            java.io.File(
-                context.applicationInfo.nativeLibraryDir,
-                "libdfroot.so"
-            ).exists()
-        }.getOrDefault(false)
+    /**
+     * Absolute path of the staged `bootstrap` executable.
+     *
+     * The kernel module `exec`s this path directly, so it has to be this package's
+     * device-protected files dir — not a path under some other package name. It is
+     * also the string the native payload is compiled with (see `lkm/dfroot.c`).
+     */
+    fun bootstrapPath(context: Context): String =
+        java.io.File(deContext(context).filesDir.parentFile, "bootstrap").absolutePath
+
+    /** The payload is compiled for a package name; this is the one it must match. */
+    private const val PAYLOAD_PACKAGE = "com.gamershub"
+
+    /**
+     * True only when this build can actually complete the chain.
+     *
+     * Checking that `libdfroot.so` exists is not enough, and pretending it is was the
+     * bug: the payload was compiled with upstream DFRoot's package name baked into its
+     * `insmod` bootstrap path, so every run ended with the module loaded, SELinux
+     * permissive, and nothing to exec. Root never appeared and the log looked fine.
+     *
+     * Both halves are checked here — the payload file, and the staged path the payload
+     * will look for — so a mis-built payload is reported up front instead of silently
+     * doing nothing.
+     */
+    fun payloadPresent(context: Context): Boolean = runCatching {
+        val bin = java.io.File(context.applicationInfo.nativeLibraryDir, "libdfroot.so")
+        val expectedParent = "/data/user_de/0/$PAYLOAD_PACKAGE"
+        bin.exists() && context.packageName == PAYLOAD_PACKAGE &&
+            bootstrapPath(context).substringBeforeLast('/') == expectedParent
+    }.getOrDefault(false)
+
+    /** Human-readable reason the payload cannot run, or "" when it can. */
+    fun payloadProblem(context: Context): String = when {
+        !java.io.File(context.applicationInfo.nativeLibraryDir, "libdfroot.so").exists() ->
+            "This build has no DFRoot payload (it is arm64-only)."
+        context.packageName != PAYLOAD_PACKAGE ->
+            "The payload is built for $PAYLOAD_PACKAGE, but this install is ${context.packageName}."
+        else -> ""
+    }
 
     /**
      * Installed SU managers that carry `libksud.so`, sorted by label.
@@ -91,24 +128,69 @@ object DfRootRunner {
     }
 
     /**
+     * Writes the two switches the exploit reads but this screen never showed.
+     *
+     * `disable_modules` matters more than it looks: if a KernelSU module is what breaks
+     * root, `ksud late-load` fails and the run reports success with no root — upstream
+     * DFRoot's own FAQ says to switch modules off before retrying. Exposing the switch
+     * is what turns "it doesn't apply" into something the user can recover from.
+     *
+     * `soft_reboot` is left OFF by default on purpose: it restarts the UI, and a user who
+     * sees the screen flash assumes the app crashed.
+     */
+    fun setOptions(context: Context, disableModules: Boolean, softReboot: Boolean) {
+        deContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(PREF_DISABLE_MODULES, disableModules)
+            .putBoolean(PREF_SOFT_REBOOT, softReboot)
+            .apply()
+    }
+
+    fun disableModules(context: Context): Boolean =
+        deContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(PREF_DISABLE_MODULES, false)
+
+    fun softReboot(context: Context): Boolean =
+        deContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(PREF_SOFT_REBOOT, false)
+
+    /**
      * Runs the exploit. [onLine] is invoked for every log line, already marshalled
      * back to the main thread so Compose state can be updated directly.
      */
     fun run(context: Context, onLine: (String) -> Unit): Int {
         if (!payloadPresent(context)) {
-            post(onLine, "embedded payload missing from this build — reinstall the signed release APK\n")
+            val why = payloadProblem(context).ifBlank { "payload incomplete" }
+            post(onLine, "cannot run: $why\n")
+            com.gamershub.GamersHubApp.problem("dfroot", "DFRoot payload cannot run: $why")
+            return 2
+        }
+        if (selected(context) == null) {
+            post(onLine, "no SU manager selected — pick one above\n")
             return 2
         }
         val main = Handler(Looper.getMainLooper())
-        val reporter = object : df.root.IReporter {
-            override fun report(msg: String) {
-                main.post { onLine(msg) }
-            }
+        // Every line goes to the panel *and* to the app's own log. The panel's copy
+        // disappears when the sheet closes, and "DFRoot didn't apply" with no log is
+        // unanswerable.
+        val tailBuf = StringBuilder()
+        val tap: (String) -> Unit = { line ->
+            main.post { onLine(line) }
+            synchronized(tailBuf) { tailBuf.append(line).also { if (it.length > LOG_TAIL) it.delete(0, it.length - LOG_TAIL) } }
         }
         return try {
-            df.root.ExploitRunner.run(deContext(context), reporter)
+            val rc = df.root.ExploitRunner.run(deContext(context), object : df.root.IReporter {
+                override fun report(msg: String) = tap(msg)
+            })
+            com.gamershub.GamersHubApp.noteRun(
+                "dfroot",
+                "exit $rc · " + synchronized(tailBuf) { tailBuf.toString() }
+                    .lineSequence().lastOrNull { it.isNotBlank() }.orEmpty()
+            )
+            rc
         } catch (t: Throwable) {
-            post(onLine, "exception: $t\n")
+            tap("exception: $t\n")
+            com.gamershub.GamersHubApp.noteRun("dfroot", "exception: $t")
             2
         }
     }

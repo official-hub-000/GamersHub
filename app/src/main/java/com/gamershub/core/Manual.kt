@@ -144,10 +144,12 @@ object Manual {
                 "Settings ▸ Developer options ▸ Wireless debugging ▸ Pair device with pairing code.",
                 "Leave that dialog open — it shows a six-digit code and a port.",
                 "In GamersHub: Power Up ▸ Net Mode ▸ Cordless Debug, type the code, tap Pair.",
-                "Auto-detect finds the port over mDNS; if it fails, type the port shown on the dialog.",
-                "On Android 13+ allow Nearby devices when asked — without it discovery cannot answer."
+                "Tapping Connect reuses the port from your last session first, so a working setup reconnects without discovery.",
+                "Auto-detect uses mDNS, then falls back to adbd's fixed port — it no longer reports \"not on\" just because mDNS is quiet.",
+                "On Android 13+ allow Nearby devices when asked — without it discovery cannot answer.",
+                "If the port changed (wireless debugging toggled, or the phone rebooted), tap Connect again: the app drops the dead port and rediscovers."
             ),
-            note = "A failed pair is almost always a closed dialog or a stale code. Reopen the dialog and try again before reporting a bug.",
+            note = "A failed pair is almost always a closed dialog or a stale code. A failed *connect* is usually a changed port — reopen Wireless debugging to read the current port. Either way the sheet now names which one it was; you should not have to reinstall.",
             sheet = "wireless",
         ),
         HelpTopic(
@@ -636,10 +638,11 @@ object Manual {
             steps = listOf(
                 "Root ▸ TEMPORARY ROOT · DFROOT ▸ scan.",
                 "The section lists the installed managers it found and the kernel it expects.",
+                "Pick the SU manager the module should attach to — KernelSU, KernelSU-Next, KowSU or Magisk.",
                 "Hold the session to use root; release it when you are done.",
                 "Rebooting always clears it."
             ),
-            note = "This is the one feature with real risk. Read the report before holding; if the kernel does not match, nothing is attempted."
+            note = "The scan now refuses to run when the payload is staged for a different app id, which is the failure that used to report success and then produce no root. \"Disable KSU modules\" is on by default: an incompatible module is the usual reason the module loads and root still does not appear."
         ),
         HelpTopic(
             id = "session-root",
@@ -951,6 +954,21 @@ object Manual {
                 "On Android 13+, allow Nearby devices so auto-detect can answer.",
                 "If discovery is silent, type the port by hand and tap Pair again."
             )
+        ),
+        HelpTopic(
+            id = "fix-wireless-connect",
+            section = "Fixes",
+            title = "Wireless debugging says it is off, but it is on",
+            aliases = "wireless off not on connect fails port changed mdns silent reboot stale port already paired",
+            summary = "Pairing and connecting are two different things. A phone can stay paired and still " +
+                "refuse a connect, because the shell port changes and the old one is dead.",
+            steps = listOf(
+                "Open Wireless debugging in Settings and read the port under IP address & port.",
+                "In GamersHub: Cordless Debug ▸ Already paired ▸ type that port ▸ Connect.",
+                "If you leave the field empty, the app tries your last working port, then mDNS, then adbd's fixed port.",
+                "After a reboot or after toggling wireless debugging, always tap Connect again — the pair itself survives, the port does not."
+            ),
+            note = "You do not need to re-pair or reinstall for this. The sheet now separates \"not paired\" from \"port changed\" in the error text."
         ),
         HelpTopic(
             id = "fix-capture",

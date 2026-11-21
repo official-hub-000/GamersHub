@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,6 +123,14 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
         status = WirelessAdb.status
         port = WirelessAdb.shellPort
         daemonAlive = ShellDaemon.alive
+    }
+
+    // Kick a discovery when the sheet opens, off the main thread. Doing it inline made
+    // opening this screen jank the UI for six seconds while mDNS waited, which read as
+    // "wireless debugging is broken" before a single tap was made.
+    LaunchedEffect(Unit) {
+        runCatching { withContext(Dispatchers.IO) { WirelessAdb.discover(context, 4_000) } }
+        refresh()
     }
 
     SheetFrame(onDismiss = onDismiss) {
@@ -453,10 +462,13 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                             scope.launch {
                                 busy = "Finding the current port…"
                                 val res = withContext(Dispatchers.IO) {
+                                    // connect() discovers on its own when it has no port,
+                                    // and falls back to adbd's fixed port when mDNS is
+                                    // silent. Doing the discovery here as well doubled the
+                                    // wait for no gain.
                                     if (manual > 0) {
                                         WirelessAdb.connect(context, 10_000, manual)
                                     } else {
-                                        WirelessAdb.discover(context)
                                         WirelessAdb.connect(context)
                                     }
                                 }

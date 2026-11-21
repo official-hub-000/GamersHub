@@ -130,14 +130,12 @@ object DfRoot {
         val root = RootShell.ready()
         val manager = runCatching { ModuleManager.managerName() }.getOrDefault("none")
         // DFRoot's bootstrap stages libksud.so out of the manager's nativeLibraryDir,
-        // so a manager without it cannot be started by the exploit.
+        // so a manager without it cannot be started by the exploit. This asks the same
+        // question the picker asks, for every installed manager — probing a single
+        // hard-coded package reported "not bootstrap-capable" on KernelSU-Next, KowSU
+        // and Samsung forks, which are all listed as supported upstream.
         val canBootstrap = runCatching {
-            // PackageInfo.applicationInfo is ApplicationInfo? as of API 35.
-            val dir = context.packageManager
-                .getPackageInfo("com.tiann.kernelsu", 0)
-                .applicationInfo
-                ?.nativeLibraryDir
-            dir != null && java.io.File(dir, "libksud.so").exists()
+            DfRootRunner.candidates(context).isNotEmpty()
         }.getOrDefault(false)
 
         val notes = buildList {
@@ -158,9 +156,12 @@ object DfRoot {
             }
             if (root) add("Root is already live — no need to run DFRoot again")
             add(
-                if (canBootstrap) "KernelSU found and bootstrap-capable"
-                else "No bootstrap-capable KernelSU found — install one first, the exploit only starts its su daemon"
+                if (canBootstrap) "SU manager found and bootstrap-capable"
+                else "No bootstrap-capable SU manager found — install KernelSU, KernelSU-Next or KowSU first; the exploit only starts their su daemon"
             )
+            if (!DfRootRunner.payloadPresent(context)) {
+                add("The embedded payload cannot run here: " + DfRootRunner.payloadProblem(context))
+            }
         }
 
         return Status(

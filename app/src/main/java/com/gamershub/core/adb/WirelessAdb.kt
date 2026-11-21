@@ -74,11 +74,30 @@ object WirelessAdb {
 
     private val host: String = "127.0.0.1"
 
+    /** The fixed port adbd listens on for TLS connects after `adb tcpip`-style setup. */
+    private const val KNOWN_TLS_PORT = 5555
+
     fun attached(context: Context) {
         appContext = context.applicationContext
     }
 
     fun connected(): Boolean = status == Status.CONNECTED
+
+    /**
+     * True when the socket is genuinely still up.
+     *
+     * [status] is a flag; adbd can drop the connection underneath it (reboot, toggling
+     * wireless debugging, the daemon deciding to close an idle stream). Anything that
+     * wants to *reuse* a connection has to ask the socket, not the flag.
+     */
+    fun alive(context: Context): Boolean = runCatching {
+        connected() && AdbConnectionManager.get(context).isConnected
+    }.getOrDefault(false)
+
+    /** Last port that actually carried a shell, or 0. */
+    fun rememberedPort(context: Context): Int = runCatching {
+        context.getSharedPreferences("gamershub", Context.MODE_PRIVATE).getInt("wireless_port", 0)
+    }.getOrDefault(0)
 
     fun statusLabel(): String = when (status) {
         Status.CONNECTED -> "Connected"
@@ -194,12 +213,36 @@ object WirelessAdb {
         if (portOverride > 0) {
             shellPort = portOverride
         } else if (shellPort <= 0) {
-            discoverShellPort(context, 6_000)
+            // The port from last session is the cheapest correct guess: adbd keeps it
+            // for the life of a boot, and polling it answers instantly when it is right.
+            val remembered = context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+                .getInt("wireless_port", 0)
+            if (remembered > 0) shellPort = remembered
+            if (shellPort <= 0) discoverShellPort(context, 6_000)
         }
         if (shellPort <= 0) {
-            status = Status.OFF
-            lastError = "Wireless debugging is not on — turn it on in Developer options"
-            return false to lastError
+            // mDNS is the documented way to find the port, but it is multicast: some
+            // chipsets and many routers drop it, and then the app would claim wireless
+            // debugging is off while it is plainly on. adbd's TLS connect port is stable
+            // for the life of a boot, so trying it costs one socket and rescues every
+            // network where discovery is silent.
+            val guess = KNOWN_TLS_PORT
+            val guessed = try {
+                java.net.Socket().use { sock ->
+                    sock.connect(java.net.InetSocketAddress(host, guess), 700)
+                    true
+                }
+            } catch (_: Throwable) {
+                false
+            }
+            if (!guessed) {
+                status = Status.OFF
+                lastError = "No adbd found on 127.0.0.1:$guess and mDNS found nothing. " +
+                    "Turn Wireless debugging on, and keep this phone on the same Wi-Fi " +
+                    "(not a VPN). You can also type the port from Settings."
+                return false to lastError
+            }
+            shellPort = guess
         }
         return try {
             val manager = AdbConnectionManager.get(context)
@@ -216,7 +259,10 @@ object WirelessAdb {
                     // preference about *our* connection, not a switch over the phone.
                     runCatching {
                         context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                            .edit().putBoolean("wireless_enabled", true).apply()
+                            .edit()
+                            .putBoolean("wireless_enabled", true)
+                            .putInt("wireless_port", shellPort)
+                            .apply()
                     }
                     true to out.trim()
                 } else {
@@ -231,9 +277,26 @@ object WirelessAdb {
             }
         } catch (t: Throwable) {
             val msg = t.message ?: "connection failed"
-            status = if (msg.contains("pair", ignoreCase = true)) Status.NOT_PAIRED else Status.UNAUTHORISED
-            lastError = msg
-            false to msg
+            status = when {
+                msg.contains("pair", ignoreCase = true) -> Status.NOT_PAIRED
+                msg.contains("timed out", ignoreCase = true) ||
+                    msg.contains("timeout", ignoreCase = true) -> Status.OFF
+                else -> Status.UNAUTHORISED
+            }
+            // Name the remedy with the failure. A bare "connection failed" is what sent
+            // people to reinstall the app for a port that had simply changed.
+            lastError = when (status) {
+                Status.NOT_PAIRED -> "Not paired — use the pairing code from Settings"
+                Status.OFF -> "adbd did not answer on port $shellPort — the port changes when " +
+                    "wireless debugging is toggled. Tap Already paired · Connect."
+                else -> msg
+            }
+            // A stale remembered port must not win twice.
+            runCatching {
+                context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+                    .edit().remove("wireless_port").apply()
+            }
+            false to lastError
         }
     }
 

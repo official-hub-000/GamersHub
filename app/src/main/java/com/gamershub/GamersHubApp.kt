@@ -69,6 +69,20 @@ class GamersHubApp : Application() {
             toast(message)
         }
 
+        /**
+         * Records what a risky action did, without claiming it failed.
+         *
+         * `problem()` is for "this broke" and opens the reporter; this is for "this ran,
+         * here is the outcome". A DFRoot run that exits 0 but does not deliver root is
+         * exactly that case: nothing threw, so there is no crash, but without the last
+         * line the report cannot say why. The trail is only written when there was
+         * something to say, so a clean run does not fill the log.
+         */
+        fun noteRun(tag: String, detail: String) {
+            val ctx = instance ?: return
+            runCatching { ctx.logTrail(tag, detail) }
+        }
+
         /** Safe toast from any thread — used so a failed action is never silent. */
         fun toast(message: String) {
             val ctx = instance ?: return
@@ -140,6 +154,22 @@ class GamersHubApp : Application() {
         runCatching {
             val cm = getSystemService(ClipboardManager::class.java) ?: return
             cm.setPrimaryClip(ClipData.newPlainText("GamersHub stop", text))
+        }
+    }
+
+    /** Outcome of a non-crashing action (a root attempt, a capture start). */
+    private fun logTrail(tag: String, detail: String) {
+        runCatching {
+            val file = File(filesDir, "crash.log")
+            if (file.exists() && file.length() > 512 * 1024) file.delete()
+            val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            file.appendText(
+                buildString {
+                    append("\n=== ").append(stamp).append(" · ").append(tag).append(" ===\n")
+                    append("steps: ").append(stepsText()).append('\n')
+                    append("note: ").append(detail.take(600)).append('\n')
+                }
+            )
         }
     }
 

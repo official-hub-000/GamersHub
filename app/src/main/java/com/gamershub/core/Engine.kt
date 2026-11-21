@@ -122,12 +122,26 @@ object Engine {
         // engine before. This is a reconnect, never an enable: GamersHub does not have
         // (and does not ask for) the permission to switch wireless debugging on, so a
         // device where the user turned it off is left exactly as it is.
+        //
+        // Reset first. adbd drops every connection when the phone reboots or wireless
+        // debugging is toggled, but our status flag survives that — so the check below
+        // used to short-circuit on a connection that was dead, and the reconnect never
+        // ran. That single line is why "wireless debugging not working" survived a
+        // successful pairing.
         runCatching {
             if (context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
                     .getBoolean("wireless_enabled", false)
             ) {
                 com.gamershub.core.adb.WirelessAdb.attached(context)
-                if (!com.gamershub.core.adb.WirelessAdb.connected()) {
+                val stale = com.gamershub.core.adb.WirelessAdb.rememberedPort(context)
+                if (stale > 0) {
+                    // Try the last known port before spending seconds on mDNS.
+                    com.gamershub.core.adb.WirelessAdb.connect(context, 4_000, stale)
+                }
+                // alive(), not connected(): connected() is our own flag and survives a
+                // reboot or a wireless-debugging toggle, so trusting it here meant the
+                // reconnect above was skipped every time the socket had already died.
+                if (!com.gamershub.core.adb.WirelessAdb.alive(context)) {
                     com.gamershub.core.adb.WirelessAdb.connect(context)
                 }
             }

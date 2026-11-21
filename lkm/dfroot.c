@@ -54,7 +54,13 @@ static int __nocfi __init dfroot_init(void)
 
     // UMH command to run
     static const char sh[] = "/system/bin/sh";
-    static const char bootstrap[] = "/data/user_de/0/df.root/bootstrap";
+    /* The path must be this app's own device-protected files dir. Upstream DFRoot
+     * hard-codes its package here; it is built for com.gamershub, whose staged
+     * executables live in /data/user_de/0/com.gamershub. Getting this wrong is not
+     * a visible error: the module loads, SELinux goes permissive, and then the
+     * call_usermodehelper has nothing to exec — the run "succeeds" and no root
+     * appears. DfRootRunner.payloadPresent() checks this exact string at runtime. */
+    static const char bootstrap[] = "/data/user_de/0/com.gamershub/bootstrap";
     static char cmd[512];
     static char *envp[] = { "PATH=/system/bin", NULL };
     static char *argv[] = { (char *)sh, "-c", cmd, NULL };

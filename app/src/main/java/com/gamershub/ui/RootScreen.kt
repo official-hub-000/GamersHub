@@ -1178,6 +1178,11 @@ private fun DfRootSection(
     var selected by remember { mutableStateOf(com.gamershub.core.root.DfRootRunner.selected(context)) }
     var running by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf("") }
+    var storeResult by remember { mutableStateOf<Int?>(null) }
+    // Recovery switch, straight from upstream DFRoot's FAQ: a broken KernelSU module
+    // makes `ksud late-load` fail, and the run then reports success with no root. With
+    // this on, every installed module is marked disabled before ksud starts.
+    var disableModules by remember { mutableStateOf(com.gamershub.core.root.DfRootRunner.disableModules(context)) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -1276,6 +1281,29 @@ private fun DfRootSection(
                 }
             }
 
+            if (!rootReady) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Disable KSU modules", color = GC.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Turn on if a module is breaking root — ksud fails to start its daemon " +
+                                "and the run looks successful. Marks every module disabled first.",
+                            color = GC.TextDim, fontSize = 11.sp, lineHeight = 15.sp
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    com.gamershub.ui.components.Toggle(on = disableModules) {
+                        disableModules = it
+                        com.gamershub.core.root.DfRootRunner.setOptions(
+                            context,
+                            disableModules = it,
+                            softReboot = com.gamershub.core.root.DfRootRunner.softReboot(context)
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(6.dp))
             BigButton(
                 text = when {
@@ -1291,12 +1319,29 @@ private fun DfRootSection(
                     }
                     running = true
                     log = ""
+                    storeResult = null
                     scope.launch {
                         val rc = withContext(Dispatchers.IO) {
                             com.gamershub.core.root.DfRootRunner.run(context) { line -> log += line }
                         }
-                        log += "\n[exit $rc]\n"
+                        log += "\n" + when (rc) {
+                            0 -> "[exit 0 · patched. If no root appeared (ksud late-load failed),\n" +
+                                " turn on Disable KSU Modules and run again, then Adopt Root.]\n"
+                            1 -> "[exit 1 · ksud reported an error. Try Disable KSU Modules, then run again.]\n"
+                            2 -> "[exit 2 · pre-flight stopped before patching — the reason is above.]\n"
+                            else -> "[exit $rc · the payload could not patch. The kernel may be patched\n" +
+                                " already, or this KMI may be newer than the module.]\n"
+                        }
+                        storeResult = rc
                         running = false
+                        // A run that did not patch is a broken feature, not a neutral
+                        // outcome: it belongs in the log the reporter sends.
+                        if (rc != 0) {
+                            com.gamershub.GamersHubApp.problem(
+                                "dfroot",
+                                "DFRoot exited $rc — " + (log.lineSequence().lastOrNull { it.isNotBlank() } ?: "no detail")
+                            )
+                        }
                     }
                 },
                 primary = kmiOk && payloadOk && selected != null && !running && !st.hooked
