@@ -50,9 +50,17 @@ object AdbCert {
      * Generated once per identity: the private key is useless without a certificate
      * that matches it, and re-minting on each launch would unpair the device.
      */
-    fun mint(privateKey: PrivateKey, publicKey: PublicKey): Certificate {
-        val spki = publicKey.encoded // RFC 5280 SubjectPublicKeyInfo, already DER
+    fun mint(privateKey: PrivateKey, publicKey: PublicKey): Certificate =
+        mintFromEncoded(privateKey, publicKey.encoded)
 
+    /**
+     * Same certificate, from an already-encoded SubjectPublicKeyInfo.
+     *
+     * Split out so an identity can be re-minted straight from the PKCS#8 key bytes on
+     * disk without ever holding a [PrivateKey] object that something else could
+     * destroy — see [AdbConnectionManager.getPrivateKey] for why that matters.
+     */
+    fun mintFromEncoded(privateKey: PrivateKey, spki: ByteArray): Certificate {
         val now = Date()
         // Ten years: this certificate only identifies the app to adbd on the phone it
         // is installed on, and an expiry would silently unpair the user.
