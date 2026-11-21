@@ -286,7 +286,7 @@ fun AxPanel(onClose: () -> Unit, onQuit: () -> Unit = onClose) {
             // Default dispatcher, not Main: these blocks call into the engine, adbd and
             // the shell, which block on sockets. Running them on Main froze the panel's
             // toast for seconds — and worse, an ANR there reads as "the app is dead".
-            work = {
+            work = { block ->
                 scope.launch {
                     st.busy = true
                     runCatching { withContext(Dispatchers.IO) { block() } }
