@@ -968,7 +968,7 @@ object Manual {
                 "If you leave the field empty, the app tries your last working port, then mDNS, then adbd's fixed port.",
                 "After a reboot or after toggling wireless debugging, always tap Connect again — the pair itself survives, the port does not."
             ),
-            note = "You do not need to re-pair or reinstall for this. The sheet now separates \"not paired\" from \"port changed\" in the error text."
+            note = "You do not need to re-pair or reinstall for this. If the app ever says \"not paired\" when the phone still lists GamersHub under Wireless debugging › Paired devices, tap Connect once — that message is the port, not the pairing, and the app now clears the dead connection before every attempt instead of reusing it."
         ),
         HelpTopic(
             id = "fix-capture",

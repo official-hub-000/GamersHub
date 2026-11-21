@@ -123,26 +123,19 @@ object Engine {
         // (and does not ask for) the permission to switch wireless debugging on, so a
         // device where the user turned it off is left exactly as it is.
         //
-        // Reset first. adbd drops every connection when the phone reboots or wireless
-        // debugging is toggled, but our status flag survives that — so the check below
-        // used to short-circuit on a connection that was dead, and the reconnect never
-        // ran. That single line is why "wireless debugging not working" survived a
-        // successful pairing.
+        // One call, not two. The previous version dialed the remembered port and then
+        // dialed again if it looked unconnected — and because a dead connection object
+        // still reports "connected" (see WirelessAdb's class comment), the second dial
+        // was skipped and the reconnect never happened at all.
         runCatching {
-            if (context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                    .getBoolean("wireless_enabled", false)
-            ) {
+            val sp = context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+            if (sp.getBoolean("wireless_enabled", false)) {
                 com.gamershub.core.adb.WirelessAdb.attached(context)
-                val stale = com.gamershub.core.adb.WirelessAdb.rememberedPort(context)
-                if (stale > 0) {
-                    // Try the last known port before spending seconds on mDNS.
-                    com.gamershub.core.adb.WirelessAdb.connect(context, 4_000, stale)
-                }
-                // alive(), not connected(): connected() is our own flag and survives a
-                // reboot or a wireless-debugging toggle, so trusting it here meant the
-                // reconnect above was skipped every time the socket had already died.
                 if (!com.gamershub.core.adb.WirelessAdb.alive(context)) {
-                    com.gamershub.core.adb.WirelessAdb.connect(context)
+                    val res = com.gamershub.core.adb.WirelessAdb.connect(context)
+                    if (!res.first) {
+                        GamersHubApp.noteRun("wireless", res.second)
+                    }
                 }
             }
         }

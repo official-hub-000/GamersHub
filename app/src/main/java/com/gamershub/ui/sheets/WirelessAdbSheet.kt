@@ -123,6 +123,10 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
         status = WirelessAdb.status
         port = WirelessAdb.shellPort
         daemonAlive = ShellDaemon.alive
+        // Mirror the transport's own message so a failure cannot be invisible.
+        if (WirelessAdb.lastError.isNotBlank() && status != WirelessAdb.Status.CONNECTED) {
+            message = WirelessAdb.lastError
+        }
     }
 
     // Kick a discovery when the sheet opens, off the main thread. Doing it inline made
@@ -198,7 +202,15 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         Text("port $port", color = GC.TextDim, fontSize = 11.sp)
                     }
                 }
-                if (message.isNotBlank()) {
+                // Whatever the last attempt said, even when it was not this screen
+                // that made it (the engine reconnects on its own). A silent failure is
+                // the complaint this whole screen exists to answer.
+                val detail = message.ifBlank { WirelessAdb.lastError }
+                if (detail.isNotBlank() && !connected) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(detail, color = GC.TextDim, fontSize = 12.sp)
+                }
+                if (message.isNotBlank() && connected) {
                     Spacer(Modifier.height(8.dp))
                     Text(message, color = GC.TextDim, fontSize = 12.sp)
                 }

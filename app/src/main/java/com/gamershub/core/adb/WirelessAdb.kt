@@ -3,6 +3,10 @@ package com.gamershub.core.adb
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -20,19 +24,45 @@ import java.util.concurrent.atomic.AtomicInteger
  * the same [com.gamershub.core.shizuku.Shell] surface, which is why every existing
  * call site — Game Space, tools, restore, capture — works through it untouched.
  *
+ * ## The bug that made this look permanently broken
+ *
+ * The two load-bearing facts live in the vendored libadb, and each is individually
+ * reasonable:
+ *
+ *  1. `AdbConnection.isConnected()` is `!socket.isClosed() && socket.isConnected()`.
+ *     `java.net.Socket.isConnected()` is true for the whole life of the object once it
+ *     has connected **once** — a socket whose peer went away is still "connected" by
+ *     that test. So a dropped link keeps reporting a live connection.
+ *
+ *  2. `AbsAdbConnectionManager.connect(port)` opens with
+ *     `if (isConnected()) return false;` — it bails out *before dialing*, and returns
+ *     the same `false` it would return for a real failure.
+ *
+ * Together: after `adbd` drops the link (reboot, toggling wireless debugging, an idle
+ * timeout), the dead `AdbConnection` still passes `isConnected()`, so every later
+ * `connect()` returned `false` **without opening a socket**, and this class reported
+ * that as "Not paired — use the pairing code". The right port, the right certificate,
+ * a fresh pairing — none of it could help, because nothing was ever dialed. Only
+ * force-stopping the app cleared it, which is why it looked like the feature "just
+ * doesn't work".
+ *
+ * [teardown] below is the fix: the old connection object is destroyed before every
+ * attempt, so `connect()` cannot take that early exit, and "connected" is decided by
+ * an actual round trip ([verify]) rather than by a socket flag.
+ *
  * ## State
  *
- * [Status.NOT_PAIRED] is the state Shizuku calls "permission needed", and it is
- * reached honestly: the app never claims a connection it does not have. [lastError]
- * carries the real reason a connect failed, because "it didn't work" is the thing
- * that makes a network panel useless.
+ * [Status.CONNECTED] is only ever set after a command has come back from the shell.
+ * [lastError] always names the specific failure, because "it didn't work" is the
+ * thing that makes a network panel useless.
  *
  * ## Discovery
  *
  * The ports are ephemeral and change whenever wireless debugging is toggled, so they
  * are discovered over mDNS exactly as the platform advertises them:
  * `_adb-tls-connect._tcp` for the shell port, `_adb-tls-pairing._tcp` for pairing.
- * Saved ports are kept as a fast path, but a failed connect re-discovers.
+ * A saved port is tried first because it is free when it is right; when it is wrong
+ * the answer is a refused socket in milliseconds, not a six-second mDNS wait.
  */
 object WirelessAdb {
 
@@ -74,8 +104,8 @@ object WirelessAdb {
 
     private val host: String = "127.0.0.1"
 
-    /** The fixed port adbd listens on for TLS connects after `adb tcpip`-style setup. */
-    private const val KNOWN_TLS_PORT = 5555
+    /** Guarded: pairing and connecting must not run at the same time. */
+    private val guard = Any()
 
     fun attached(context: Context) {
         appContext = context.applicationContext
@@ -86,12 +116,12 @@ object WirelessAdb {
     /**
      * True when the socket is genuinely still up.
      *
-     * [status] is a flag; adbd can drop the connection underneath it (reboot, toggling
-     * wireless debugging, the daemon deciding to close an idle stream). Anything that
-     * wants to *reuse* a connection has to ask the socket, not the flag.
+     * Deliberately *not* `AdbConnectionManager.isConnected` on its own: see the class
+     * comment. A dead link whose peer closed it still answers true there, which is
+     * exactly what kept the reconnect from ever running.
      */
     fun alive(context: Context): Boolean = runCatching {
-        connected() && AdbConnectionManager.get(context).isConnected
+        connected() && AdbConnectionManager.get(context).isConnected && verify(AdbConnectionManager.get(context))
     }.getOrDefault(false)
 
     /** Last port that actually carried a shell, or 0. */
@@ -119,7 +149,7 @@ object WirelessAdb {
         val wifi = context.applicationContext
             .getSystemService(android.content.Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager
-        val lock = runCatching {
+        val mcLock = runCatching {
             wifi?.createMulticastLock("gh-adb-mdns")?.apply {
                 setReferenceCounted(false)
                 acquire()
@@ -132,7 +162,7 @@ object WirelessAdb {
             runCatching { discoverPairingPort(context, 2_500) }
             found
         } finally {
-            runCatching { if (lock?.isHeld == true) lock.release() }
+            runCatching { if (mcLock?.isHeld == true) mcLock.release() }
         }
     }
 
@@ -182,7 +212,7 @@ object WirelessAdb {
         }
         return try {
             val manager = AdbConnectionManager.get(context)
-            val ok = manager.pair(target, code)
+            val ok = synchronized(guard) { manager.pair(target, code) }
             if (ok) {
                 lastError = ""
                 true to "Paired"
@@ -199,9 +229,10 @@ object WirelessAdb {
     /**
      * Opens the shell connection.
      *
-     * Assumes pairing already happened. When adbd reports that a pairing is required
-     * the status becomes [Status.NOT_PAIRED] rather than a generic failure, so the UI
-     * can send the user to the right screen.
+     * [portOverride] pins the port (typed by the user, or remembered from last time).
+     * Without it the remembered port is tried, then mDNS, then a scan of adbd's usual
+     * range — and only if adbd answers on none of them is "wireless debugging is off"
+     * reported, which is a claim this app should make only when it is sure.
      */
     fun connect(context: Context, timeoutMs: Long = 10_000, portOverride: Int = 0): Pair<Boolean, String> {
         attached(context)
@@ -210,93 +241,164 @@ object WirelessAdb {
             lastError = "Wireless debugging needs Android 10 or newer"
             return false to lastError
         }
-        if (portOverride > 0) {
-            shellPort = portOverride
-        } else if (shellPort <= 0) {
-            // The port from last session is the cheapest correct guess: adbd keeps it
-            // for the life of a boot, and polling it answers instantly when it is right.
-            val remembered = context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                .getInt("wireless_port", 0)
-            if (remembered > 0) shellPort = remembered
-            if (shellPort <= 0) discoverShellPort(context, 6_000)
-        }
-        if (shellPort <= 0) {
-            // mDNS is the documented way to find the port, but it is multicast: some
-            // chipsets and many routers drop it, and then the app would claim wireless
-            // debugging is off while it is plainly on. adbd's TLS connect port is stable
-            // for the life of a boot, so trying it costs one socket and rescues every
-            // network where discovery is silent.
-            val guess = KNOWN_TLS_PORT
-            val guessed = try {
-                java.net.Socket().use { sock ->
-                    sock.connect(java.net.InetSocketAddress(host, guess), 700)
-                    true
-                }
-            } catch (_: Throwable) {
-                false
-            }
-            if (!guessed) {
-                status = Status.OFF
-                lastError = "No adbd found on 127.0.0.1:$guess and mDNS found nothing. " +
-                    "Turn Wireless debugging on, and keep this phone on the same Wi-Fi " +
-                    "(not a VPN). You can also type the port from Settings."
-                return false to lastError
-            }
-            shellPort = guess
-        }
+
+        // The fix for the whole class of "it says Not paired but I am paired": the old
+        // connection object must die before connect() is called, or the manager's
+        // `if (isConnected()) return false;` swallows the attempt without dialing.
+        teardown(context)
+
         return try {
-            val manager = AdbConnectionManager.get(context)
-            manager.setHostAddress(host)
-            val ok = manager.connect(shellPort)
-            if (ok) {
-                // connected() only proves the TLS/identity handshake; a real command
-                // proves the shell is usable. Anything less would be theatre.
-                val out = AdbExec.run(manager, "id")
-                if (out != null && out.contains("uid=")) {
-                    status = Status.CONNECTED
-                    lastError = ""
-                    // Remembered so the engine re-attaches on the next start. This is a
-                    // preference about *our* connection, not a switch over the phone.
-                    runCatching {
-                        context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("wireless_enabled", true)
-                            .putInt("wireless_port", shellPort)
-                            .apply()
-                    }
-                    true to out.trim()
-                } else {
-                    status = Status.UNAUTHORISED
-                    lastError = "Connected but adbd refused the shell"
-                    false to lastError
-                }
+            if (portOverride > 0) {
+                shellPort = portOverride
+                val r = tryPort(context, portOverride)
+                if (r == null) {
+                    fail(Status.OFF, "Nothing answered on 127.0.0.1:$portOverride. Check the port " +
+                        "shown in Settings › Wireless debugging, then connect again.")
+                } else r.first to r.second
             } else {
-                status = Status.NOT_PAIRED
-                lastError = "Not paired — use the pairing code from Settings"
-                false to lastError
+                val candidates = candidatePorts(context)
+                var result: Pair<Boolean, String>? = null
+                var unpaired = false
+                for (candidate in candidates) {
+                    val r = tryPort(context, candidate)
+                    if (r == null) continue
+                    // A real answer that is not a success is worth reporting as-is:
+                    // re-dialing the next port would not change what adbd said.
+                    if (r.first || r.third) {
+                        result = r.first to r.second
+                        break
+                    }
+                    if (r.second.contains("pair", ignoreCase = true) ||
+                        r.second.contains("unauthor", ignoreCase = true)
+                    ) unpaired = true
+                }
+                result ?: if (unpaired) {
+                    fail(Status.NOT_PAIRED, "adbd refused this identity. Use the pairing code from " +
+                        "Settings › Wireless debugging › Pair device with pairing code.")
+                } else {
+                    fail(Status.OFF, "adbd did not answer on any known port. Turn Wireless debugging on, " +
+                        "read the port under IP address & port, and type it here.")
+                }
             }
         } catch (t: Throwable) {
+            fail(classify(t), remedy(t))
+        } finally {
+            // Nothing is half-open after a failed attempt: a socket left behind is the
+            // next attempt's false "already connected".
+            if (status != Status.CONNECTED) teardownQuietly(context)
+        }
+    }
+
+    /**
+     * One attempt against one port.
+     *
+     * Returns null when adbd did not answer at all (refused / timed out — the port is
+     * simply wrong), else the outcome plus whether it is terminal.
+     */
+    private fun tryPort(context: Context, port: Int): Triple<Boolean, String, Boolean>? {
+        val reachable = runCatching {
+            Socket().use { it.connect(InetSocketAddress(host, port), 600) }
+            true
+        }.getOrDefault(false)
+        if (!reachable) return null
+
+        val manager = AdbConnectionManager.get(context)
+        manager.setHostAddress(host)
+        val ok = try {
+            manager.connect(port)
+        } catch (t: Throwable) {
             val msg = t.message ?: "connection failed"
-            status = when {
-                msg.contains("pair", ignoreCase = true) -> Status.NOT_PAIRED
-                msg.contains("timed out", ignoreCase = true) ||
-                    msg.contains("timeout", ignoreCase = true) -> Status.OFF
-                else -> Status.UNAUTHORISED
-            }
-            // Name the remedy with the failure. A bare "connection failed" is what sent
-            // people to reinstall the app for a port that had simply changed.
-            lastError = when (status) {
-                Status.NOT_PAIRED -> "Not paired — use the pairing code from Settings"
-                Status.OFF -> "adbd did not answer on port $shellPort — the port changes when " +
-                    "wireless debugging is toggled. Tap Already paired · Connect."
-                else -> msg
-            }
-            // A stale remembered port must not win twice.
+            // A TLS-level refusal is definitive; a generic failure is worth another
+            // port, because it usually means the port belonged to something else.
+            val terminal = msg.contains("pair", true) || msg.contains("unauthor", true) ||
+                msg.contains("authentication", true)
+            return Triple(false, msg, terminal)
+        }
+        if (!ok) {
+            return Triple(
+                false,
+                "adbd answered on $port but did not accept the connection",
+                true
+            )
+        }
+
+        // A completed handshake is not a working shell. "id" is the smallest command
+        // that proves the identity was authorised and the stream carries data — the
+        // connection used to be called CONNECTED on the handshake alone, which is how
+        // a half-dead link could look healthy.
+        val out = AdbExec.run(manager, "id")
+        if (out != null && out.contains("uid=")) {
+            shellPort = port
+            status = Status.CONNECTED
+            lastError = ""
             runCatching {
-                context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                    .edit().remove("wireless_port").apply()
+                context.getSharedPreferences("gamershub", Context.MODE_PRIVATE).edit()
+                    .putBoolean("wireless_enabled", true)
+                    .putInt("wireless_port", port)
+                    .apply()
             }
-            false to lastError
+            return Triple(true, out.trim(), true)
+        }
+        return Triple(
+            false,
+            "adbd accepted the handshake on $port but the shell did not answer — " +
+                "if a phone prompt is asking to allow USB debugging, accept it",
+            true
+        )
+    }
+
+    /**
+     * Ports to try, most authoritative first.
+     *
+     * 1. `Settings.Global.adb_wifi_port` — the number the Settings app itself stores
+     *    for the live wireless-debugging server. When it is readable this is not a
+     *    guess, it is the answer, and it survives the port changing on reboot.
+     * 2. The port from last time, then whatever mDNS advertises.
+     * 3. 5555, for a phone switched to `adb tcpip` rather than wireless debugging.
+     *
+     * The list is bounded and each entry costs a 600 ms dial at most, so a wrong guess
+     * is cheap. Nothing here scans port ranges: that would be a 20-second sweep to
+     * rediscover something the platform will tell us for free.
+     */
+    private fun candidatePorts(context: Context): List<Int> {
+        val out = LinkedHashSet<Int>()
+        settingsPort(context)?.let { out += it }
+        rememberedPort(context).takeIf { it > 0 }?.let { out += it }
+        shellPort.takeIf { it > 0 }?.let { out += it }
+        if (discoverShellPort(context, 3_500) && shellPort > 0) out += shellPort
+        out += 5555
+        return out.toList()
+    }
+
+    /** The live port as recorded by the platform, or null when it is not readable. */
+    private fun settingsPort(context: Context): Int? = runCatching {
+        android.provider.Settings.Global.getInt(context.contentResolver, "adb_wifi_port", 0)
+            .takeIf { it > 0 }
+    }.getOrNull()
+
+    private fun verify(manager: AdbConnectionManager): Boolean =
+        AdbExec.run(manager, "id", 3_000)?.contains("uid=") == true
+
+    private fun fail(s: Status, message: String): Pair<Boolean, String> {
+        status = s
+        lastError = message
+        return false to message
+    }
+
+    private fun classify(t: Throwable): Status {
+        val msg = t.message ?: ""
+        return when {
+            msg.contains("pair", true) || msg.contains("unauthor", true) ||
+                msg.contains("authentication", true) -> Status.NOT_PAIRED
+            else -> Status.OFF
+        }
+    }
+
+    private fun remedy(t: Throwable): String {
+        val msg = t.message ?: "connection failed"
+        return when (classify(t)) {
+            Status.NOT_PAIRED -> "adbd refused this identity — pair again with the code from Settings"
+            else -> "adbd did not answer: $msg. Turn Wireless debugging off and on, then connect again."
         }
     }
 
@@ -304,21 +406,48 @@ object WirelessAdb {
     fun exec(context: Context, command: String, timeoutMs: Long = 12_000): String? {
         attached(context)
         if (!connected()) return null
-        return AdbExec.run(AdbConnectionManager.get(context), command, timeoutMs)
+        val manager = AdbConnectionManager.get(context)
+        val out = AdbExec.run(manager, command, timeoutMs)
+        if (out == null) {
+            // The stream died underneath us. Clear the flag now rather than letting a
+            // dead connection keep answering `connected()` for the rest of the session.
+            status = Status.OFF
+            lastError = "the connection dropped — tap Connect to restore it"
+            teardownQuietly(context)
+        }
+        return out
     }
 
     /**
-     * Drops the connection. The device keeps its authorisation, so the next connect
-     * needs no code — this is only the network half, not a teardown of privilege.
+     * Drops the connection but keeps the identity.
+     *
+     * The device keeps its authorisation, so the next connect needs no code — this is
+     * only the network half, not a teardown of privilege.
      *
      * Deliberately NOT [AdbConnectionManager.close]: that method destroys the private
      * key, which on a singleton would leave the next connect with a dead identity and
-     * no way to recover except re-pairing. The engine stops this every time, so using
-     * close() here would silently unpair the user on their first engine toggle.
+     * no way to recover except re-pairing.
      */
     fun disconnect() {
-        runCatching { AdbConnectionManager.get(appContext ?: return).disconnect() }
+        val ctx = appContext
+        if (ctx != null) teardownQuietly(ctx)
         status = Status.OFF
+    }
+
+    /**
+     * Destroys the in-memory connection so the next [connect] actually dials.
+     *
+     * This is the whole bug fix: `AbsAdbConnectionManager.connect()` returns `false`
+     * without opening a socket when it thinks it is already connected, and it thinks so
+     * whenever the socket object has ever connected. Nulling it is the only way to make
+     * the manager dial again.
+     */
+    private fun teardown(context: Context) {
+        runCatching { AdbConnectionManager.get(context).disconnect() }
+    }
+
+    private fun teardownQuietly(context: Context) {
+        runCatching { teardown(context) }
     }
 
     /**
@@ -348,15 +477,14 @@ object WirelessAdb {
         fun find(timeoutMs: Long): Int? {
             val manager = nsd ?: return null
             val port = AtomicInteger(-1)
-        val latch = Object()
-        val wanted = type.trimEnd('.')
-        var listener: NsdManager.DiscoveryListener? = null
+            val latch = CountDownLatch(1)
+            val wanted = type.trimEnd('.')
+            var listener: NsdManager.DiscoveryListener? = null
 
-        listener = object : NsdManager.DiscoveryListener {
+            listener = object : NsdManager.DiscoveryListener {
                 override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
                 override fun onDiscoveryStarted(serviceType: String) = Unit
-
                 override fun onDiscoveryStopped(serviceType: String) = signal()
 
                 override fun onServiceFound(info: NsdServiceInfo) {
@@ -377,20 +505,16 @@ object WirelessAdb {
 
                 override fun onServiceLost(info: NsdServiceInfo) = Unit
 
-                // Not named notify(): that is java.lang.Object.notify(), and a private method
-                // with the same JVM signature is an accidental override.
-                private fun signal() = synchronized(latch) { latch.notifyAll() }
+                private fun signal() = latch.countDown()
             }
 
             return try {
                 manager.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
-                synchronized(latch) {
-                    if (port.get() <= 0) latch.wait(timeoutMs)
-                }
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
                 runCatching { manager.stopServiceDiscovery(listener) }
                 port.get().takeIf { it > 0 }
             } catch (t: Throwable) {
-                runCatching { runCatching { manager.stopServiceDiscovery(listener) } }
+                runCatching { manager.stopServiceDiscovery(listener) }
                 null
             }
         }
