@@ -205,10 +205,11 @@ object WirelessAdb {
         }
         val target = if (manual > 0) manual else pairingPort
         if (target <= 0) {
-            return false to "Open Settings › Wireless debugging › Pair device with pairing code, then try again"
+            return fail(Status.NOT_PAIRED,
+                "Open Settings › Wireless debugging › Pair device with pairing code, then try again")
         }
         if (code.length != 6 || code.any { !it.isDigit() }) {
-            return false to "The pairing code is the six digits shown on the phone"
+            return fail(Status.NOT_PAIRED, "The pairing code is the six digits shown on the phone")
         }
         return try {
             val manager = AdbConnectionManager.get(context)
@@ -265,7 +266,11 @@ object WirelessAdb {
                     // A real answer that is not a success is worth reporting as-is:
                     // re-dialing the next port would not change what adbd said.
                     if (r.first || r.third) {
-                        result = r.first to r.second
+                        // Through fail() even on the way out, so the status and the
+                        // message the sheet shows are always the ones from this attempt
+                        // and never a stale pair from an earlier one.
+                        result = if (r.first) r.first to r.second
+                        else fail(Status.NOT_PAIRED, r.second)
                         break
                     }
                     if (r.second.contains("pair", ignoreCase = true) ||
@@ -307,6 +312,8 @@ object WirelessAdb {
         val ok = try {
             manager.connect(port)
         } catch (t: Throwable) {
+            // no lastError: this returns the reason to connect(), which records it
+            // through fail() once it knows whether another port is worth trying.
             val msg = t.message ?: "connection failed"
             // A TLS-level refusal is definitive; a generic failure is worth another
             // port, because it usually means the port belonged to something else.
@@ -514,6 +521,9 @@ object WirelessAdb {
                 runCatching { manager.stopServiceDiscovery(listener) }
                 port.get().takeIf { it > 0 }
             } catch (t: Throwable) {
+                // no lastError: a silent discovery is not a failure — connect() tries
+                // the platform's recorded port and 5555 as well, and only reports once
+                // every candidate has actually been dialed.
                 runCatching { manager.stopServiceDiscovery(listener) }
                 null
             }

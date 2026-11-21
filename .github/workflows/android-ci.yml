@@ -103,6 +103,11 @@ jobs:
       - name: Verify the user manual covers every feature
         run: python3 tools/check_manual_coverage.py
 
+      # A wireless-debugging failure that reaches the user with no reason is
+      # indistinguishable from a broken app. This gate refuses to ship one.
+      - name: Wireless failures must explain themselves
+        run: python3 tools/check_wireless_errors.py
+
       - name: Build debug APK
         run: |
           set -o pipefail
