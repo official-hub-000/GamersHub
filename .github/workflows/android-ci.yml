@@ -108,6 +108,11 @@ jobs:
       - name: Wireless failures must explain themselves
         run: python3 tools/check_wireless_errors.py
 
+      # The support flow must actually produce a mail draft with a FileProvider
+      # attachment, and must fall back honestly when no mail app exists.
+      - name: Verify the Help & Support email flow
+        run: python3 tools/check_support_flow.py
+
       - name: Build debug APK
         run: |
           set -o pipefail

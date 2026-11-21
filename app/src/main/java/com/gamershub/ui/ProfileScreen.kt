@@ -336,13 +336,22 @@ fun ProfileScreen(
                 Column(Modifier.weight(1f)) {
                     Text("Report a Problem", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 17.sp)
                     Text(
-                        "Sends the error log, build and phone details",
+                        "Emails the developer with the error log attached",
                         style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 12.sp
                     )
                 }
                 Text("OPEN", color = accent, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
         }
+
+        // The address is shown, not just the button: someone with no mail app installed
+        // can still read it off the screen and write from anywhere.
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Reports go to " + com.gamershub.core.SupportDiagnostics.SUPPORT_EMAIL,
+            style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 11.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         SectionLabel("Support Us!")
 

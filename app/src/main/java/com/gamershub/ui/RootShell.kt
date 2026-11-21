@@ -149,7 +149,11 @@ sealed interface SheetState {
     data class Help(val topic: String = "") : SheetState
 
     /** Issue reporter: opens by itself on a failure, or by hand with an optional note. */
-    data class Report(val note: String = "") : SheetState
+    data class Report(
+        val note: String = "",
+        /** Which support door opened this: feedback omits the error log. */
+        val feedback: Boolean = false
+    ) : SheetState
 }
 
 /** Root shell: tabs, octagon nav, sheets, live state. */
@@ -361,6 +365,9 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             // the floating panel and shortcuts can open them like any other sheet.
             "manual", "help", "search" -> SheetState.Help()
             "report" -> SheetState.Report()
+            // Same sheet, different starting door — the kind decides whether the error
+            // log is attached, so the two entries are not cosmetic.
+            "feedback" -> SheetState.Report(feedback = true)
             else -> SheetState.None
         }
 
@@ -799,7 +806,16 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     )
                     is SheetState.Report -> com.gamershub.ui.sheets.ReportSheet(
                         onDismiss = { sheet = SheetState.None },
-                        initialNote = current.note
+                        initialNote = current.note,
+                        // A crash recorded by the previous, dying process is offered as a
+                        // problem report with the failure named — that is the only way a
+                        // startup failure ever gets reported.
+                        initialKind = if (startupCrash != null || !current.feedback)
+                            com.gamershub.core.SupportDiagnostics.Kind.PROBLEM
+                        else com.gamershub.core.SupportDiagnostics.Kind.FEEDBACK,
+                        startupCrashLine = startupCrash?.let {
+                            com.gamershub.core.StartupWatch.describe(it)
+                        }.orEmpty()
                     )
                     SheetState.None -> {}
                 }
@@ -812,6 +828,9 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         // sent from there. It is polled rather than checked once, because a feature can
         // break halfway through a session without the process dying.
         var autoReport by remember { mutableStateOf(false) }
+        // A crash that killed the previous launch could not be offered at the time.
+        // Pick it up once here, and let the reporter ask about it.
+        var startupCrash by remember { mutableStateOf(com.gamershub.core.StartupWatch.onLaunch(context)) }
         LaunchedEffect(Unit) {
             while (true) {
                 if (com.gamershub.core.IssueReporter.shouldAutoOpen(context)) autoReport = true

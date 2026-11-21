@@ -872,18 +872,36 @@ object Manual {
         HelpTopic(
             id = "reporter",
             section = "Help & Reporting",
-            title = "Report a problem",
-            aliases = "report problem issue bug crash send developer log error feedback complain",
-            summary = "Builds a complete report — what happened, the app version, your phone, the last " +
-                "error log and the steps you took — and lets you send it in one tap.",
+            title = "Help & Support",
+            aliases = "help support report problem issue bug crash send developer log error feedback complain email gmail",
+            summary = "Two options — Send feedback and Report a problem — both of which build a diagnostic " +
+                "file and open an email draft addressed to the developer. You send it yourself.",
             steps = listOf(
-                "The reporter opens by itself when something breaks.",
-                "Or open it yourself: Tools ▸ Report a problem, Profile ▸ Report a problem, or Settings ▸ Health Look.",
-                "Describe what you were doing (optional but it helps most).",
-                "Tap Send — pick any app. Copy saves it to the clipboard, Save file attaches it, GitHub opens an issue."
+                "Tools ▸ Send feedback (or Report a problem), or Profile ▸ Help & Support.",
+                "Pick the door: feedback sends the build and phone; a problem report adds the latest error.",
+                "Read what will be shared. Both rows can be switched off, and the exact file can be previewed.",
+                "Tap OPEN EMAIL DRAFT — Gmail opens if it is installed, otherwise you choose your email app.",
+                "Review the draft and press send there. GamersHub cannot send mail on its own."
             ),
             sheet = "report",
-            note = "Nothing is sent automatically. The report sits on your phone until you choose where it goes."
+            note = "Reports go to official.hub.000@gmail.com. If no email app is installed the sheet says the " +
+                "report was NOT sent and offers Copy email address instead."
+        ),
+        HelpTopic(
+            id = "reporter-data",
+            section = "Help & Reporting",
+            title = "What a report contains",
+            aliases = "diagnostics what is shared privacy ip address region location data attached file",
+            summary = "Exactly what the attached file holds, and what it deliberately never holds.",
+            steps = listOf(
+                "Included: app name and version, device make and model, Android version, device language, the time of the report.",
+                "Also: whether the engine was on and which privilege channel answered.",
+                "Public IP and approximate country/region — looked up once from ipwho.is when you tap send. Switch the row off to omit it.",
+                "For a problem report only: the latest caught error, with tokens, keys and email addresses removed.",
+                "Never included: passwords, tokens, messages, browsing history, your installed apps, or any personal file.",
+                "The file stays in GamersHub's private cache until you share it; at most three are kept and each is deleted after a week."
+            ),
+            note = "The IP lookup is the only network request in this feature, it is named on screen, and it only happens once you have asked for a report."
         ),
         HelpTopic(
             id = "error-log",
@@ -893,7 +911,7 @@ object Manual {
             summary = "The app writes every caught failure to a log with the exact screen and step, " +
                 "so a report does not need guesswork.",
             steps = listOf(
-                "Open Report a problem ▸ the log is shown at the bottom, in full.",
+                "Open Report a problem ▸ READ the exact file, to see the log section in full.",
                 "The steps: line is the breadcrumb trail — the last screen you were on.",
                 "The first line after it is the exception and the file that threw it.",
                 "Copy takes the whole thing to the clipboard."

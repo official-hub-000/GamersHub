@@ -62,7 +62,9 @@ def titles(text: str):
     """Feature titles as they are rendered on screen."""
     out = set()
     # ToolRow(title = "…")
-    out.update(re.findall(r'title = "([^"]{3,60})"', text))
+    # Anchored on a word boundary so `subtitle = "…"` is not mistaken for a title, which
+    # silently demanded a manual page for every subtitle in the file.
+    out.update(re.findall(r'(?<!\w)title = "([^"]{3,60})"', text))
     # Card headings: Text("…", style = MaterialTheme.typography.titleMedium
     out.update(re.findall(r'Text\("([^"]{3,40})", style = MaterialTheme\.typography\.titleMedium', text))
     # Root card headings: Text("…", color = GC.Text, fontSize = 14..19.sp
@@ -76,6 +78,8 @@ def main() -> int:
     # Words that are substituted at runtime can never match a literal check.
     dynamic = re.compile(r"\$\{?")
 
+    # Two Tools rows that open the same sheet are one feature. Report them once.
+    seen = set()
     missing = []
     checked = 0
     for path in (TOOLS, LABS, ROOT_SCREEN):
@@ -86,6 +90,9 @@ def main() -> int:
             # Match on the first word-pair, so "Screen Grab" also covers
             # "Screen Grab (recording)" and "Report a problem" covers "report".
             probe = title.split("(")[0].strip().lower()
+            if probe in seen:
+                continue
+            seen.add(probe)
             if probe not in haystack:
                 missing.append(f"{path.name}: {title!r} is not described in the manual")
 
@@ -94,6 +101,12 @@ def main() -> int:
     keys = set(re.findall(r'"([a-z]+)" -> SheetState\.', shell))
     keys.discard("apps")  # the app picker is an action, not a feature
     pages = set(re.findall(r'sheet = "([a-z]+)"', manual))
+    # Two doors into one sheet: "feedback" opens the same ReportSheet as "report",
+    # with the error log left out. The page documents both, so one key covers it.
+    ALIASED_KEYS = {"feedback": "report"}
+    for alias, target in ALIASED_KEYS.items():
+        if alias in keys and target in pages:
+            keys.discard(alias)
     for key in sorted(keys - pages):
         missing.append(f"sheet key {key!r} has no manual page (add sheet = \"{key}\" to a topic)")
 

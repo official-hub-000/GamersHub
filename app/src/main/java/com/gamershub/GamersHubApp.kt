@@ -98,6 +98,10 @@ class GamersHubApp : Application() {
         super.onCreate()
         instance = this
         installCrashGuard()
+        // A crash during the *previous* launch could not have been offered for sending
+        // from inside the dying process. This marks it pending so the next successful
+        // start can offer it, which is the only way a startup failure is ever reported.
+        runCatching { com.gamershub.core.StartupWatch.onLaunch(this) }
         // Mutations have to be journaled from the moment the app can make one, or the
         // engine's "puts everything back" promise has a hole in it.
         runCatching { com.gamershub.core.root.ModuleManager.attach(this) }
@@ -111,6 +115,11 @@ class GamersHubApp : Application() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching { log(thread, error) }
+            // Flag it for the next launch. Written before anything that could kill this
+            // process again, so a crash that never reaches the toast still gets offered.
+            // Nothing here replaces or suppresses the platform's own handling: `previous`
+            // is still called on the paths below, exactly as before.
+            runCatching { com.gamershub.core.StartupWatch.markPending(this, error) }
             val now = System.currentTimeMillis()
             val main = Looper.getMainLooper().thread
             if (thread === main) {

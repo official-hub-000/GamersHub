@@ -175,10 +175,23 @@ fun ToolsScreen(
             onConfig = { onOpenSheet("search") },
             configLabel = "FIND"
         )
+        // Help & Support: two doors into one emailed report. Both are here rather than
+        // hidden behind a submenu because a user who cannot reach the developer is a
+        // user who stops reporting.
+        ToolRow(
+            icon = GhIcons.Campaign,
+            title = "Help & Support",
+            subtitle = "Help & Support — send feedback by email",
+            active = false,
+            accent = accent,
+            onToggle = null,
+            onConfig = { onOpenSheet("feedback") },
+            configLabel = "OPEN"
+        )
         ToolRow(
             icon = GhIcons.Warning,
             title = "Report a problem",
-            subtitle = "Sends the error log, build and phone details",
+            subtitle = "Help & Support — with the latest error attached",
             active = false,
             accent = accent,
             onToggle = null,
