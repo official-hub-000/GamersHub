@@ -61,6 +61,12 @@ EXEMPT = {
     "com/gamershub/core/root/Reboot.kt": "process control, not persistent state",
     "com/gamershub/core/root/DfRoot.kt": "starts an activity; writes nothing",
     "com/gamershub/core/GfxSafe.kt": "repair path; restores rather than changes",
+    # The manual and the reporter are text: the user manual *describes* `module install`
+    # in a step and the reporter *prints* the change journal into a bug report. Neither
+    # can mutate anything, and matching them here was a false positive that failed the
+    # pipeline on documentation alone.
+    "com/gamershub/core/Manual.kt": "user manual text; describes features, changes nothing",
+    "com/gamershub/core/IssueReporter.kt": "bug report text; prints the journal, changes nothing",
 }
 
 
