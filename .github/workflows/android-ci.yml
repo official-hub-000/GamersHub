@@ -138,8 +138,19 @@ jobs:
           grep -E "(^e: |error:|What went wrong|Could not|FAILURE:|Execution failed)" build.log | head -25 | while IFS= read -r line; do
             echo "::error::${line:0:240}"
           done
-          echo "--- last 30 lines ---" >> "$GITHUB_STEP_SUMMARY"
-          tail -30 build.log >> "$GITHUB_STEP_SUMMARY"
+          # Kotlin prints errors as "e: file://..."; those are the ones that matter and
+          # they are often far above the last 30 lines. Put them in the summary so the
+          # failure is diagnosable from the run page without downloading an artifact.
+          {
+            echo "### Kotlin / Gradle errors"
+            echo '```'
+            grep -E "^e: |error:|FAILURE: Build|Execution failed" build.log | head -40 || echo "none matched"
+            echo '```'
+            echo "### Last 40 lines"
+            echo '```'
+            tail -40 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build log (on failure)
         if: failure()
