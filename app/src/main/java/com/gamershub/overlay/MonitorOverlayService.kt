@@ -316,7 +316,7 @@ class MonitorOverlayService : Service(), androidx.lifecycle.LifecycleOwner,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
                 else context.startService(intent)
             }.onFailure {
-                com.gamershub.GamersHubApp.toast("Tracker couldn't start — check overlay/notification permission")
+                com.gamershub.GamersHubApp.problem("info watcher", "Tracker couldn't start — check overlay/notification permission")
             }
         }
 

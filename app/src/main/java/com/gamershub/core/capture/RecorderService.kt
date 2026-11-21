@@ -285,7 +285,7 @@ class RecorderService : Service() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
                 else context.startService(intent)
             }.onFailure {
-                com.gamershub.GamersHubApp.toast("Capture couldn't start — screen-capture permission missing")
+                com.gamershub.GamersHubApp.problem("screen record", "Capture couldn't start — screen-capture permission missing")
             }
         }
 

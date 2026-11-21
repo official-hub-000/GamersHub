@@ -393,7 +393,7 @@ class FloatingPanelService : Service(), androidx.lifecycle.LifecycleOwner,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
                 else context.startService(intent)
             }.onFailure {
-                com.gamershub.GamersHubApp.toast("Window couldn't start — check overlay/notification permission")
+                com.gamershub.GamersHubApp.problem("floating bubble", "Window couldn't start — check overlay/notification permission")
             }
         }
 

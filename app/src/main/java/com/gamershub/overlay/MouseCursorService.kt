@@ -263,7 +263,7 @@ class MouseCursorService : Service(), androidx.lifecycle.LifecycleOwner,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
                 else context.startService(intent)
             }.onFailure {
-                com.gamershub.GamersHubApp.toast("Cursor couldn't start — check overlay/notification permission")
+                com.gamershub.GamersHubApp.problem("mouse pointer", "Cursor couldn't start — check overlay/notification permission")
             }
         }
 

@@ -169,7 +169,7 @@ class CrosshairOverlayService : Service(), androidx.lifecycle.LifecycleOwner,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i)
                 else context.startService(i)
             }.onFailure {
-                com.gamershub.GamersHubApp.toast("Crosshair couldn't start — check overlay/notification permission")
+                com.gamershub.GamersHubApp.problem("aim mark", "Crosshair couldn't start — check overlay/notification permission")
             }
         }
 

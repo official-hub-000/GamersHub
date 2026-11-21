@@ -455,11 +455,14 @@ fun ToolsScreen(
             onConfig = {
                 scope.launch {
                     val shot = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ScreenshotEngine.capture() }
-                    Toast.makeText(
-                        context,
-                        if (shot != null) "Saved ${shot.name}" else "Grant Shizuku to capture",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    // A failed capture is a broken feature, not a message: it is written
+                    // to the log so the reporter has something to send if the user asks
+                    // for help instead of guessing why nothing appeared.
+                    if (shot == null) {
+                        com.gamershub.GamersHubApp.problem("screenshot", "Screen Grab could not capture — the shell channel is not ready")
+                    } else {
+                        Toast.makeText(context, "Saved ${shot.name}", Toast.LENGTH_SHORT).show()
+                    }
                     onOpenSheet("screenshot")
                 }
             },
