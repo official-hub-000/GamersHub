@@ -1071,7 +1071,3 @@ object Manual {
         return scored.sortedByDescending { it.second }.take(limit).map { it.first }
     }
 }
-
-package com.gamershub.core
-
-
