@@ -30,7 +30,8 @@ import java.io.File
  *    not exist. The module loads, SELinux goes permissive, nothing is exec'd, and the
  *    run finishes with no root and a log that looks healthy.
  *  - The debug build (`applicationIdSuffix = ".debug"`) computes
- *    `/data/user*/0/com.gamershub.debug/`, which the payload was never compiled for.
+ *    `/data/user/0/com.gamershub.debug/` (or the `_de` equivalent), which the payload was
+ *    never compiled for.
  *
  * So the path is no longer computed by four parties. It is computed **here**, from the
  * app's real data directory, and every party reads it from the same source: this file
