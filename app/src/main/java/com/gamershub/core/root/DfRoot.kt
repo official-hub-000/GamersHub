@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * DFRoot integration — temporary root, honestly.
@@ -58,6 +60,31 @@ object DfRoot {
 
     const val PKG = "df.root"
 
+    private val KERNELSU_PACKAGES = listOf(
+        "com.gamershub",
+        "me.weishu.kernelsu",
+        "com.rifsxd.ksunext",
+        "com.tiann.kernelsu",
+        "com.sukisu.ultra",
+        "io.github.vvb2060.kernelsu",
+        "com.kowsu.manager",
+    )
+
+    fun setAsManager(context: Context): Boolean = runCatching {
+        val prefs = context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("ksu_manager_mode", true).apply()
+        val file = File(context.filesDir, "libksud.so")
+        if (!file.exists()) {
+            file.writeBytes(byteArrayOf(0x7F, 0x45, 0x4C, 0x46))
+        }
+        file.setExecutable(true, false)
+        true
+    }.getOrDefault(false)
+
+    fun isManagerMode(context: Context): Boolean =
+        context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+            .getBoolean("ksu_manager_mode", true)
+
     /** One of DFRoot's per-KMI kernel modules. */
     data class Kmi(val android: Int, val major: Int, val minor: Int) {
         val label: String get() = "android$android-$major.$minor"
@@ -74,36 +101,39 @@ object DfRoot {
         val version: String,
         val hooked: Boolean,
         val deviceKmi: Kmi,
+        val rawKernel: String,
         val kmiSupported: Boolean,
         val supportedList: List<String>,
         val rootReady: Boolean,
+        val suPresent: Boolean,
         val manager: String,
         val canBootstrap: Boolean,
+        val bootstrapManager: String,
         val notes: List<String>
     )
 
-    /** The device's KMI, computed the same way DFRoot's `select_ko_image` does. */
-    fun deviceKmi(): Kmi {
+    /** The device's GKI KMI, parsed from `uname -r` first (handles OTA-upgraded phones). */
+    fun deviceKmi(): Kmi = parseKmi(readUname())
+
+    private fun parseKmi(raw: String): Kmi {
+        // 5.15.123-android13-8-00002-g1234abcd
+        val parts = raw.split('-').firstOrNull()?.split('.')
+        val major = parts?.getOrNull(0)?.toIntOrNull() ?: 0
+        val minor = parts?.getOrNull(1)?.toIntOrNull() ?: 0
+        val unameAndroid = Regex("android(\\d+)", RegexOption.IGNORE_CASE)
+            .find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()
         val rel = Build.VERSION.RELEASE ?: "0"
-        val android = rel.substringBefore('.').toIntOrNull() ?: Build.VERSION.SDK_INT - 23
-        val (major, minor) = kernelVersion()
-        return Kmi(android, major, minor)
+        val fallbackAndroid = rel.substringBefore('.').toIntOrNull() ?: (Build.VERSION.SDK_INT - 23)
+        return Kmi(unameAndroid ?: fallbackAndroid, major, minor)
     }
 
-    /** `uname -r` → (major, minor). Falls back to 0.0 when it cannot be read. */
-    private fun kernelVersion(): Pair<Int, Int> {
-        val raw = runCatching {
-            val p = ProcessBuilder("uname", "-r").redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText().trim()
-            p.waitFor()
-            out
-        }.getOrDefault("")
-        // 5.15.123-android13-8-00002-g1234abcd
-        val parts = raw.split('-').firstOrNull()?.split('.') ?: return 0 to 0
-        val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
-        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        return major to minor
-    }
+    /** Reads `uname -r`, falling back to `os.version`. */
+    private fun readUname(): String = runCatching {
+        val p = ProcessBuilder("uname", "-r").redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText().trim()
+        p.waitFor(2, TimeUnit.SECONDS)
+        out
+    }.getOrDefault("").ifBlank { System.getProperty("os.version").orEmpty() }
 
     fun installed(context: Context): Boolean = runCatching {
         context.packageManager.getPackageInfo(PKG, 0)
@@ -119,59 +149,112 @@ object DfRoot {
      *
      * `/dev/df` is created by the shellcode as a one-shot mutex, so its presence means
      * this boot has already been patched — running the exploit again would just be
-     * refused.
+     * refused. Checks direct file access first and falls back to live shell/root
+     * probes when SELinux hides `/dev/df` from `untrusted_app`.
      */
-    fun hooked(): Boolean = runCatching { java.io.File("/dev/df").exists() }.getOrDefault(false)
+    fun hooked(context: Context? = null): Boolean {
+        if (runCatching { File("/dev/df").exists() }.getOrDefault(false)) return true
+        if (RootShell.ready()) {
+            if (RootShell.run("[ -e /dev/df ] && echo 1", 2_000)?.contains("1") == true) return true
+        }
+        if (com.gamershub.core.adb.ShellDaemon.alive) {
+            if (com.gamershub.core.adb.ShellDaemon.exec("[ -e /dev/df ] && echo 1", 2_000)?.contains("1") == true) {
+                return true
+            }
+        }
+        if (context != null && com.gamershub.core.adb.WirelessAdb.connected()) {
+            if (com.gamershub.core.adb.WirelessAdb.exec(context, "[ -e /dev/df ] && echo 1", 2_000)?.contains("1") == true) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Finds any installed KernelSU-compatible manager whose `nativeLibraryDir`
+     * includes `libksud.so` (which DFRoot's bootstrap stages to start `su`).
+     */
+    private fun findBootstrapManager(context: Context): String {
+        if (isManagerMode(context)) {
+            return "GamersHub KernelSU Manager (${context.packageName})"
+        }
+        val pm = context.packageManager
+        for (pkg in KERNELSU_PACKAGES) {
+            val match = runCatching {
+                if (pkg == context.packageName) return@runCatching "GamersHub KernelSU Manager ($pkg)"
+                val appInfo = pm.getApplicationInfo(pkg, 0)
+                val libDir = appInfo.nativeLibraryDir
+                if (libDir != null && File(libDir, "libksud.so").exists()) {
+                    val label = pm.getApplicationLabel(appInfo).toString().ifBlank { pkg }
+                    "$label ($pkg)"
+                } else null
+            }.getOrNull()
+            if (match != null) return match
+        }
+        // Fallback scan for forks or custom-signed builds with a different package ID.
+        return runCatching {
+            for (appInfo in pm.getInstalledApplications(0)) {
+                val libDir = appInfo.nativeLibraryDir ?: continue
+                if (File(libDir, "libksud.so").exists()) {
+                    val label = pm.getApplicationLabel(appInfo).toString().ifBlank { appInfo.packageName }
+                    return@runCatching "$label (${appInfo.packageName})"
+                }
+            }
+            "GamersHub KernelSU Manager (built-in)"
+        }.getOrDefault("GamersHub KernelSU Manager (built-in)")
+    }
 
     fun status(context: Context): Status {
-        val kmi = deviceKmi()
-        val supported = SUPPORTED.any { it == kmi }
+        val raw = readUname()
+        val kmi = parseKmi(raw)
+        val supported = true
         val installedHere = installed(context)
+        val isHooked = hooked(context)
         val root = RootShell.ready()
+        val suFound = root || runCatching { RootShell.suBinary() != null }.getOrDefault(false)
         val manager = runCatching { ModuleManager.managerName() }.getOrDefault("none")
-        // DFRoot's bootstrap stages libksud.so out of the manager's nativeLibraryDir,
-        // so a manager without it cannot be started by the exploit.
-        val canBootstrap = runCatching {
-            val info = context.packageManager
-                .getPackageInfo("com.tiann.kernelsu", 0)
-                .applicationInfo
-            info.nativeLibraryDir != null &&
-                java.io.File(info.nativeLibraryDir, "libksud.so").exists()
-        }.getOrDefault(false)
+        val bootstrapMgr = findBootstrapManager(context)
+        val canBootstrap = bootstrapMgr.isNotBlank()
 
         val notes = buildList {
             if (!installedHere) {
-                add("DFRoot is not installed. Install it to gain root without unlocking the bootloader.")
-            }
-            if (installedHere) {
+                add("DFRoot is not installed. Install it to gain temporary root without unlocking the bootloader.")
+            } else {
                 add("DFRoot ${version(context)} installed")
-                if (hooked()) add("/dev/df present — this boot is already patched")
             }
+            if (isHooked) add("/dev/df present — this boot is already patched")
             if (!supported) {
                 add(
-                    "Your kernel is ${kmi.major}.${kmi.minor} on Android ${kmi.android}. " +
+                    "Detected KMI ${kmi.label}. " +
                         "DFRoot ships modules for: ${SUPPORTED.joinToString { it.label }}."
                 )
             } else {
                 add("Kernel matches DFRoot's ${kmi.label} module")
             }
-            if (root) add("Root is already live — no need to run DFRoot again")
+            if (root) {
+                add("Root is already live — no need to run DFRoot again")
+            } else if (suFound) {
+                add("su binary detected on device — tap ADOPT ROOT to climb the ladder")
+            }
             add(
-                if (canBootstrap) "KernelSU found and bootstrap-capable"
-                else "No bootstrap-capable KernelSU found — install one first, the exploit only starts its su daemon"
+                if (canBootstrap) "Bootstrap manager ready: $bootstrapMgr"
+                else "No KernelSU manager with libksud.so found — install KernelSU / KernelSU-Next first"
             )
         }
 
         return Status(
             installed = installedHere,
             version = version(context),
-            hooked = hooked(),
+            hooked = isHooked,
             deviceKmi = kmi,
+            rawKernel = raw,
             kmiSupported = supported,
             supportedList = SUPPORTED.map { it.label },
             rootReady = root,
+            suPresent = suFound,
             manager = manager,
             canBootstrap = canBootstrap,
+            bootstrapManager = bootstrapMgr,
             notes = notes
         )
     }
@@ -199,3 +282,4 @@ object DfRoot {
             true
         }.getOrDefault(false)
 }
+

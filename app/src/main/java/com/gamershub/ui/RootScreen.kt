@@ -2,6 +2,7 @@ package com.gamershub.ui
 
 import com.gamershub.ui.icons.GhIcons
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -183,6 +185,28 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
             fontSize = 13.sp
         )
         Spacer(Modifier.height(16.dp))
+
+        RootVisualizerCard(snap = snap, accent = accent)
+        Spacer(Modifier.height(10.dp))
+
+        ConnectionDashboardCard(
+            snap = snap,
+            accent = accent,
+            onOpenWireless = { showWireless = true },
+            onOpenShizuku = {
+                runCatching {
+                    val intent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                        ?: context.packageManager.getLaunchIntentForPackage("moe.shizuku.manager")
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    } else {
+                        Toast.makeText(context, "Shizuku manager app not installed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+        Spacer(Modifier.height(14.dp))
 
         // ---------------------------------------------------------- root state
         if (!snap.ready) {
@@ -1173,6 +1197,8 @@ private fun DfRootSection(
     onAdopt: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exploitProgress by remember { mutableStateOf("") }
     val kmiOk = df?.kmiSupported == true
     val installed = df?.installed == true
     val border = when {
@@ -1186,15 +1212,17 @@ private fun DfRootSection(
                 Text(
                     when {
                         rootReady -> "Root already held"
-                        !installed -> "DFRoot not installed"
                         !kmiOk -> "Kernel not supported"
-                        else -> "Ready to run"
+                        else -> "Ready for In-App DFRoot"
                     },
                     color = GC.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     if (df == null) "checking…"
-                    else "kernel ${df.deviceKmi.major}.${df.deviceKmi.minor} · android ${df.deviceKmi.android}",
+                    else buildString {
+                        append("KMI ${df.deviceKmi.label}")
+                        if (df.rawKernel.isNotBlank()) append(" · ${df.rawKernel.take(32)}")
+                    },
                     color = GC.TextDim, fontSize = 12.sp
                 )
             }
@@ -1219,7 +1247,7 @@ private fun DfRootSection(
         df?.let { st ->
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MiniFact("VERSION", st.version.ifBlank { "—" })
+                MiniFact("VERSION", st.version.ifBlank { "In-App" })
                 MiniFact("HOOKED", if (st.hooked) "/dev/df" else "no")
                 MiniFact("BOOTSTRAP", if (st.canBootstrap) "ready" else "missing")
             }
@@ -1227,46 +1255,43 @@ private fun DfRootSection(
                 Spacer(Modifier.height(6.dp))
                 Text("· $line", color = GC.TextDim, fontSize = 12.sp)
             }
-            Spacer(Modifier.height(11.dp))
-            BigButton(
-                text = if (installed) "OPEN DFROOT" else "GET DFROOT",
-                onClick = {
-                    if (installed) {
-                        onLaunch()
-                    } else {
-                        // No dead button: send them to the real project page.
-                        runCatching {
-                            context.startActivity(
-                                android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(
-                                        "https://github.com/diabl0w/DFRoot/releases/latest"
-                                    )
-                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        }
-                    }
-                },
-                primary = kmiOk && !rootReady
-            )
-            // After the run, this is the button that actually matters: DFRoot has
-            // started su; the ladder is what makes the grant belong to this app.
-            if (installed && st.hooked && !rootReady) {
+            if (exploitProgress.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
+                Text("▶ $exploitProgress", color = accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
+            Spacer(Modifier.height(11.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BigButton(
-                    text = "ADOPT ROOT",
-                    onClick = onAdopt,
-                    primary = true
+                    text = "RUN IN-APP DFROOT",
+                    onClick = {
+                        scope.launch {
+                            exploitProgress = "Starting in-app DFRoot exploit..."
+                            val result = withContext(Dispatchers.IO) {
+                                com.gamershub.core.root.DfRootEngine.runExploit(context) { msg ->
+                                    exploitProgress = msg
+                                }
+                            }
+                            Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    primary = !rootReady,
+                    modifier = Modifier.weight(1f)
                 )
+                if (!rootReady) {
+                    BigButton(
+                        text = "ADOPT ROOT",
+                        onClick = onAdopt,
+                        primary = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
 
         Spacer(Modifier.height(10.dp))
         Text(
-            "DFRoot gives uid 0 for one boot by patching a kernel page-cache bug, then starts " +
-                "KernelSU's su daemon. GamersHub opens it and adopts the result — the superuser " +
-                "layer above is what it bootstraps. The exploit itself is DFRoot's signed native " +
-                "payload plus one kernel module per KMI, so it runs from there, not from here.",
+            "DFRoot features are now built directly into GamersHub. Run the exploit in-app " +
+                "to achieve uid 0 and bootstrap KernelSU without needing any separate app.",
             color = GC.TextDim.copy(alpha = 0.85f),
             fontSize = 11.sp
         )
@@ -1469,8 +1494,69 @@ private fun SuSection(
                     ) {
                         Text("FORGET", color = GC.TextDim, fontSize = 10.sp)
                     }
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .border(1.dp, Color(0x66E0A33A), RoundedCornerShape(50))
+                            .clickable {
+                                onAct("setting timeout") {
+                                    com.gamershub.core.root.SuManager.setGrantWithTimeout(
+                                        g.uid, allow = false, timeoutSeconds = 300
+                                    )
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text("DENY 5M", color = Color(0xFFE0A33A), fontSize = 10.sp)
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RootVisualizerCard(snap: Snapshot, accent: Color) {
+    val isReady = snap.ready
+    val statusColor = if (isReady) Color(0xFF39D98A) else Color(0xFFE0A33A)
+    Card(borderColor = statusColor.copy(alpha = 0.4f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(statusColor.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    GhIcons.Security,
+                    contentDescription = null,
+                    tint = statusColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (isReady) "Root System Fully Operational" else "Root System Standby / Inactive",
+                    color = GC.Text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Current Rung: ${snap.rung.label} · Backend: ${snap.suBackend.ifBlank { "None" }}",
+                    color = GC.TextDim,
+                    fontSize = 11.sp
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MiniFact("RUNG", snap.rung.label.uppercase())
+            MiniFact("MANAGER", snap.manager)
+            MiniFact("WIRELESS", if (snap.wireless) "LIVE" else "OFF")
+            MiniFact("DAEMON", if (snap.daemon) "RUNNING" else "OFF")
         }
     }
 }
@@ -1798,3 +1884,72 @@ private fun StoreRow(
         }
     }
 }
+
+@Composable
+private fun ConnectionDashboardCard(
+    snap: Snapshot,
+    accent: Color,
+    onOpenWireless: () -> Unit,
+    onOpenShizuku: () -> Unit
+) {
+    val shizukuRunning = runCatching { com.gamershub.core.shizuku.Shell.running() }.getOrDefault(false)
+    val shizukuGranted = runCatching { com.gamershub.core.shizuku.Shell.granted() }.getOrDefault(false)
+    Card(borderColor = RomKit.Stroke) {
+        Text("CENTRAL CONNECTION DASHBOARD", color = accent, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ConnectionTile(
+                title = "SHIZUKU",
+                status = when {
+                    shizukuGranted -> "Connected"
+                    shizukuRunning -> "Need Auth"
+                    else -> "Offline"
+                },
+                ok = shizukuGranted,
+                onClick = onOpenShizuku,
+                modifier = Modifier.weight(1f)
+            )
+            ConnectionTile(
+                title = "WIRELESS",
+                status = snap.wirelessLabel,
+                ok = snap.wireless,
+                onClick = onOpenWireless,
+                modifier = Modifier.weight(1f)
+            )
+            ConnectionTile(
+                title = "ROOT",
+                status = if (snap.ready) "Active" else "None",
+                ok = snap.ready,
+                onClick = { },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConnectionTile(
+    title: String,
+    status: String,
+    ok: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val color = if (ok) Color(0xFF39D98A) else Color(0xFFE0A33A)
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(GC.SurfaceHi)
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(6.dp))
+            Text(title, color = GC.TextDim, fontSize = 9.sp, letterSpacing = 1.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(status, color = GC.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+

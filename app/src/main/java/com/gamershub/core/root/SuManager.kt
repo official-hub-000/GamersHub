@@ -132,6 +132,48 @@ object SuManager {
         }.toList()
     }
 
+    /** Grants or revokes su for a uid with an optional timeout in seconds. */
+    fun setGrantWithTimeout(uid: Int, allow: Boolean, timeoutSeconds: Long): String {
+        if (!RootShell.ready()) return "Root is not granted to GamersHub"
+        val b = backend()
+        if (b == Backend.NONE) return "No root manager detected"
+        val nowSec = System.currentTimeMillis() / 1000
+        val until = if (timeoutSeconds > 0) nowSec + timeoutSeconds else 0
+        return when (b) {
+            Backend.MAGISK -> {
+                val bin = sqlite() ?: return "sqlite3 not found — cannot write the policy table"
+                val db = "/data/adb/magisk.db"
+                val policy = if (allow) 2 else 1
+                val exists = RootShell.run(
+                    "$bin $db \"SELECT COUNT(*) FROM policies WHERE uid=$uid\" 2>/dev/null", 4_000
+                )?.trim()?.toIntOrNull() ?: 0
+                val sql = if (exists > 0) {
+                    "UPDATE policies SET policy=$policy, until=$until, logging=1, notification=1 WHERE uid=$uid"
+                } else {
+                    "INSERT INTO policies(uid,policy,until,logging,notification) VALUES($uid,$policy,$until,1,1)"
+                }
+                val okRun = RootShell.ok("$bin $db \"$sql\"")
+                if (okRun) {
+                    RootShell.run("magisk --denylist status >/dev/null 2>&1; true", 2_000)
+                    val timeDesc = if (timeoutSeconds > 0) " for ${timeoutSeconds / 60}m" else " (permanent)"
+                    "uid $uid ${if (allow) "granted" else "denied"}$timeDesc"
+                } else {
+                    "could not write the policy table"
+                }
+            }
+            Backend.KERNELSU, Backend.APATCH -> {
+                val cli = if (b == Backend.APATCH) "apd" else "ksud"
+                val cmd = if (allow) "$cli su grant $uid" else "$cli su deny $uid"
+                if (RootShell.ok(cmd)) {
+                    "uid $uid ${if (allow) "granted" else "denied"} via $cli"
+                } else {
+                    "$cli could not change uid $uid"
+                }
+            }
+            Backend.NONE -> "No root manager detected"
+        }
+    }
+
     /** Grants or revokes su for a uid. Returns a human-readable result. */
     fun setGrant(uid: Int, allow: Boolean, forever: Boolean = true): String {
         if (!RootShell.ready()) return "Root is not granted to GamersHub"

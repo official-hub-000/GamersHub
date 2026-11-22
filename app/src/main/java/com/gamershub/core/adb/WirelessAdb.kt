@@ -3,7 +3,15 @@ package com.gamershub.core.adb
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import java.util.concurrent.atomic.AtomicInteger
+import android.net.wifi.WifiManager
+import io.github.muntashirakon.adb.AdbAuthenticationFailedException
+import io.github.muntashirakon.adb.AdbPairingRequiredException
+import java.net.InetAddress
+import java.net.NetworkInterface
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Wireless-debugging transport — Shizuku's job, done without Shizuku.
@@ -12,27 +20,13 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * Shizuku is a service that runs as uid 2000 (shell) so an app can borrow that uid.
  * Wireless debugging is the same uid, reached a different way: Android's own `adbd`
- * listens on loopback with a TLS connection, and the user authorises this app once by
- * pairing with the six-digit code the Settings screen shows. After that, GamersHub
- * holds a shell connection of its own and no longer needs Shizuku at all.
+ * listens on loopback / Wi-Fi with a TLS connection, and the user authorises this app
+ * once by pairing with the six-digit code the Settings screen shows. After that,
+ * GamersHub holds a shell connection of its own and no longer needs Shizuku at all.
  *
  * That is why this is not a parallel feature set. It is a third **transport** under
  * the same [com.gamershub.core.shizuku.Shell] surface, which is why every existing
  * call site — Game Space, tools, restore, capture — works through it untouched.
- *
- * ## State
- *
- * [Status.NOT_PAIRED] is the state Shizuku calls "permission needed", and it is
- * reached honestly: the app never claims a connection it does not have. [lastError]
- * carries the real reason a connect failed, because "it didn't work" is the thing
- * that makes a network panel useless.
- *
- * ## Discovery
- *
- * The ports are ephemeral and change whenever wireless debugging is toggled, so they
- * are discovered over mDNS exactly as the platform advertises them:
- * `_adb-tls-connect._tcp` for the shell port, `_adb-tls-pairing._tcp` for pairing.
- * Saved ports are kept as a fast path, but a failed connect re-discovers.
  */
 object WirelessAdb {
 
@@ -69,16 +63,28 @@ object WirelessAdb {
     var pairingPort: Int = 0
         private set
 
+    /** Local address advertised by adbd (used as fallback if 127.0.0.1 is refused). */
+    @Volatile
+    private var discoveredHost: String = "127.0.0.1"
+
     @Volatile
     private var appContext: Context? = null
 
-    private val host: String = "127.0.0.1"
+    private const val LOOPBACK = "127.0.0.1"
 
     fun attached(context: Context) {
         appContext = context.applicationContext
     }
 
-    fun connected(): Boolean = status == Status.CONNECTED
+    fun connected(): Boolean {
+        if (status != Status.CONNECTED) return false
+        val ctx = appContext ?: return true
+        val alive = runCatching { AdbConnectionManager.get(ctx).isConnected }.getOrDefault(false)
+        if (!alive) {
+            status = Status.OFF
+        }
+        return alive
+    }
 
     fun statusLabel(): String = when (status) {
         Status.CONNECTED -> "Connected"
@@ -93,27 +99,33 @@ object WirelessAdb {
      * Returns true if at least the shell port was found, which is the signal that
      * wireless debugging is genuinely on — the port only exists while it is.
      */
-    fun discover(context: Context, timeoutMs: Long = 6_000): Boolean {
+    fun discover(context: Context, timeoutMs: Long = 5_000): Boolean {
         attached(context)
         val found = discoverShellPort(context, timeoutMs)
         // Pairing is only advertised while the pairing dialog is open, so a miss here
         // is normal and must not be treated as a failure.
-        runCatching { discoverPairingPort(context, 2_500) }
+        runCatching { discoverPairingPort(context, 2_000) }
         return found
     }
 
     private fun discoverShellPort(context: Context, timeoutMs: Long): Boolean {
-        val port = NsdFinder(context, "_adb-tls-connect._tcp").find(timeoutMs)
-        if (port != null) {
-            shellPort = port
+        val res = NsdFinder(context, "_adb-tls-connect._tcp").find(timeoutMs)
+        if (res != null && res.second > 0) {
+            discoveredHost = res.first
+            shellPort = res.second
             return true
         }
         return false
     }
 
-    private fun discoverPairingPort(context: Context, timeoutMs: Long) {
-        val port = NsdFinder(context, "_adb-tls-pairing._tcp").find(timeoutMs)
-        if (port != null) pairingPort = port
+    private fun discoverPairingPort(context: Context, timeoutMs: Long): Int {
+        val res = NsdFinder(context, "_adb-tls-pairing._tcp").find(timeoutMs)
+        if (res != null && res.second > 0) {
+            discoveredHost = res.first
+            pairingPort = res.second
+            return res.second
+        }
+        return 0
     }
 
     /**
@@ -121,98 +133,203 @@ object WirelessAdb {
      * pairing code.
      *
      * Must run off the main thread: it opens a TLS socket to adbd, runs SPAKE2, and
-     * waits for the daemon. A wrong or expired code fails here, and the message says
-     * which, because "pairing failed" with no reason is what sends people in circles.
+     * waits for the daemon. When [port] is 0, mDNS discovery is always run fresh so a
+     * stale port from an earlier dialog is never reused.
      */
-    fun pair(context: Context, code: String, port: Int = pairingPort): Pair<Boolean, String> {
+    fun pair(context: Context, code: String, port: Int = 0): Pair<Boolean, String> {
         attached(context)
-        // Checked here rather than only in the UI: a caller that skips the screen must
-        // not get an opaque TLS failure from three layers down.
         if (!wirelessSupported()) {
             lastError = "Wireless pairing needs Android 10 or newer (TLS 1.3)"
             return false to lastError
         }
-        if (port <= 0) {
-            discoverPairingPort(context, 5_000)
-            if (pairingPort <= 0) {
-                return false to "Open Settings › Wireless debugging › Pair device with pairing code, then try again"
-            }
-        }
-        val target = if (port > 0) port else pairingPort
-        if (code.length != 6 || code.any { !it.isDigit() }) {
+        val cleanCode = code.filter { it.isDigit() }
+        if (cleanCode.length != 6) {
             return false to "The pairing code is the six digits shown on the phone"
         }
-        return try {
-            val manager = AdbConnectionManager.get(context)
-            val ok = manager.pair(target, code)
-            if (ok) {
-                lastError = ""
-                true to "Paired"
-            } else {
-                lastError = "The pairing code was rejected"
-                false to lastError
-            }
-        } catch (t: Throwable) {
-            lastError = t.message ?: "pairing failed"
-            false to lastError
+
+        val targetPort = if (port in 1..65535) {
+            pairingPort = port
+            port
+        } else {
+            pairingPort = 0
+            discoverPairingPort(context, 6_000)
         }
+        if (targetPort <= 0) {
+            lastError = "Could not find the pairing service — keep the 6-digit pairing dialog open on screen, or enter its port"
+            return false to lastError
+        }
+
+        val hosts = buildList {
+            add(LOOPBACK)
+            if (discoveredHost.isNotBlank() && discoveredHost != LOOPBACK) add(discoveredHost)
+        }
+
+        var lastThrowable: Throwable? = null
+        val manager = AdbConnectionManager.get(context)
+        for (h in hosts) {
+            try {
+                val ok = manager.pair(h, targetPort, cleanCode)
+                if (ok) {
+                    lastError = ""
+                    pairingPort = 0
+                    return true to "Paired"
+                }
+            } catch (t: Throwable) {
+                lastThrowable = t
+            }
+        }
+
+        pairingPort = 0
+        val detail = lastThrowable?.let { describeError(it, duringPair = true) }
+            ?: "The pairing code was rejected"
+        lastError = detail
+        return false to detail
     }
 
     /**
      * Opens the shell connection.
      *
-     * Assumes pairing already happened. When adbd reports that a pairing is required
-     * the status becomes [Status.NOT_PAIRED] rather than a generic failure, so the UI
-     * can send the user to the right screen.
+     * Assumes pairing already happened. When [portOverride] > 0, connects directly to
+     * that port; otherwise uses mDNS discovery (and refreshes if a cached port fails).
      */
-    fun connect(context: Context, timeoutMs: Long = 10_000): Pair<Boolean, String> {
+    fun connect(
+        context: Context,
+        timeoutMs: Long = 10_000,
+        portOverride: Int = 0
+    ): Pair<Boolean, String> {
         attached(context)
         if (!wirelessSupported()) {
             status = Status.OFF
             lastError = "Wireless debugging needs Android 10 or newer"
             return false to lastError
         }
-        if (shellPort <= 0) {
+
+        val manager = AdbConnectionManager.get(context)
+        if (manager.isConnected) {
+            val check = AdbExec.run(manager, "id", 4_000)
+            if (check != null && check.contains("uid=")) {
+                status = Status.CONNECTED
+                lastError = ""
+                return true to check.trim()
+            }
+            runCatching { manager.disconnect() }
+        }
+
+        if (portOverride in 1..65535) {
+            shellPort = portOverride
+        } else if (shellPort <= 0) {
             discoverShellPort(context, 6_000)
         }
+
         if (shellPort <= 0) {
             status = Status.OFF
-            lastError = "Wireless debugging is not on — turn it on in Developer options"
+            lastError = "Wireless debugging is not on — enable it in Developer options, or enter the port manually"
             return false to lastError
         }
-        return try {
-            val manager = AdbConnectionManager.get(context)
-            manager.setHostAddress(host)
-            val ok = manager.connect(shellPort)
-            if (ok) {
-                // connected() only proves the TLS/identity handshake; a real command
-                // proves the shell is usable. Anything less would be theatre.
-                val out = AdbExec.run(manager, "id")
-                if (out != null && out.contains("uid=")) {
-                    status = Status.CONNECTED
-                    lastError = ""
-                    // Remembered so the engine re-attaches on the next start. This is a
-                    // preference about *our* connection, not a switch over the phone.
-                    runCatching {
-                        context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                            .edit().putBoolean("wireless_enabled", true).apply()
-                    }
-                    true to out.trim()
-                } else {
-                    status = Status.UNAUTHORISED
-                    lastError = "Connected but adbd refused the shell"
-                    false to lastError
-                }
-            } else {
-                status = Status.NOT_PAIRED
-                lastError = "Not paired — use the pairing code from Settings"
-                false to lastError
+
+        val firstAttempt = tryConnectPort(context, manager, shellPort)
+        if (firstAttempt.first) return firstAttempt
+
+        // If the cached port was stale (wireless debugging was toggled), re-discover once.
+        if (portOverride <= 0 && status == Status.OFF) {
+            val prevPort = shellPort
+            shellPort = 0
+            if (discoverShellPort(context, 5_000) && shellPort > 0 && shellPort != prevPort) {
+                return tryConnectPort(context, manager, shellPort)
             }
-        } catch (t: Throwable) {
-            val msg = t.message ?: "connection failed"
-            status = if (msg.contains("pair", ignoreCase = true)) Status.NOT_PAIRED else Status.UNAUTHORISED
-            lastError = msg
-            false to msg
+        }
+        return firstAttempt
+    }
+
+    private fun tryConnectPort(
+        context: Context,
+        manager: AdbConnectionManager,
+        port: Int
+    ): Pair<Boolean, String> {
+        val hosts = buildList {
+            add(LOOPBACK)
+            if (discoveredHost.isNotBlank() && discoveredHost != LOOPBACK) add(discoveredHost)
+        }
+        var lastThrowable: Throwable? = null
+        for (h in hosts) {
+            try {
+                runCatching { if (manager.isConnected) manager.disconnect() }
+                val ok = manager.connect(h, port)
+                if (ok) {
+                    val out = AdbExec.run(manager, "id", 6_000)
+                    if (out != null && out.contains("uid=")) {
+                        status = Status.CONNECTED
+                        lastError = ""
+                        runCatching {
+                            context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+                                .edit().putBoolean("wireless_enabled", true).apply()
+                        }
+                        return true to out.trim()
+                    } else {
+                        runCatching { manager.disconnect() }
+                        status = Status.UNAUTHORISED
+                        lastError = "Connected but adbd refused the shell"
+                        return false to lastError
+                    }
+                } else {
+                    status = Status.NOT_PAIRED
+                    lastError = "Connection timed out — check Wireless debugging or re-pair"
+                    return false to lastError
+                }
+            } catch (t: AdbPairingRequiredException) {
+                status = Status.NOT_PAIRED
+                lastError = "Not paired — enter the 6-digit pairing code from Wireless debugging"
+                runCatching { WirelessNotification.showPairingPrompt(context, lastError) }
+                return false to lastError
+            } catch (t: AdbAuthenticationFailedException) {
+                status = Status.UNAUTHORISED
+                lastError = "Not authorised on this phone — tap Forget pairing and pair again"
+                runCatching { WirelessNotification.showPairingPrompt(context, lastError) }
+                return false to lastError
+            } catch (t: Throwable) {
+                lastThrowable = t
+            }
+        }
+
+        val err = lastThrowable
+        val msg = if (err != null) describeError(err, duringPair = false) else "connection failed"
+        status = when {
+            err is AdbPairingRequiredException ||
+                msg.contains("pair", ignoreCase = true) ||
+                msg.contains("certificate", ignoreCase = true) ||
+                msg.contains("protocol error", ignoreCase = true) -> Status.NOT_PAIRED
+            err is java.net.ConnectException ||
+                err is java.net.SocketTimeoutException ||
+                msg.contains("ECONNREFUSED", ignoreCase = true) -> {
+                shellPort = 0
+                Status.OFF
+            }
+            else -> Status.UNAUTHORISED
+        }
+        lastError = msg
+        if (status == Status.NOT_PAIRED || status == Status.UNAUTHORISED) {
+            runCatching { WirelessNotification.showPairingPrompt(context, msg) }
+        }
+        return false to msg
+    }
+
+    private fun describeError(t: Throwable, duringPair: Boolean): String {
+        val root = generateSequence(t) { it.cause }.lastOrNull() ?: t
+        val raw = root.message ?: t.message ?: ""
+        return when {
+            raw.contains("ECONNREFUSED", ignoreCase = true) ->
+                if (duringPair) "Pairing port refused connection — keep the pairing code dialog open"
+                else "Port refused connection — Wireless debugging may have reset to a new port"
+            raw.contains("ETIMEDOUT", ignoreCase = true) || root is java.net.SocketTimeoutException ->
+                if (duringPair) "Pairing timed out — verify the 6-digit code and keep the dialog open"
+                else "Timed out connecting to adbd"
+            raw.contains("BAD_DECRYPT", ignoreCase = true) ||
+                raw.contains("AEADBadTag", ignoreCase = true) ||
+                raw.contains("Exchanging", ignoreCase = true) ||
+                raw.contains("peer info", ignoreCase = true) ->
+                "Wrong or expired pairing code — check the 6 digits and try again"
+            raw.isNotBlank() -> raw
+            else -> if (duringPair) "Pairing failed" else "Connection failed"
         }
     }
 
@@ -220,17 +337,16 @@ object WirelessAdb {
     fun exec(context: Context, command: String, timeoutMs: Long = 12_000): String? {
         attached(context)
         if (!connected()) return null
-        return AdbExec.run(AdbConnectionManager.get(context), command, timeoutMs)
+        val out = AdbExec.run(AdbConnectionManager.get(context), command, timeoutMs)
+        if (out == null && !runCatching { AdbConnectionManager.get(context).isConnected }.getOrDefault(false)) {
+            status = Status.OFF
+        }
+        return out
     }
 
     /**
      * Drops the connection. The device keeps its authorisation, so the next connect
      * needs no code — this is only the network half, not a teardown of privilege.
-     *
-     * Deliberately NOT [AdbConnectionManager.close]: that method destroys the private
-     * key, which on a singleton would leave the next connect with a dead identity and
-     * no way to recover except re-pairing. The engine stops this every time, so using
-     * close() here would silently unpair the user on their first engine toggle.
      */
     fun disconnect() {
         runCatching { AdbConnectionManager.get(appContext ?: return).disconnect() }
@@ -238,73 +354,120 @@ object WirelessAdb {
     }
 
     /**
-     * Forgets the pairing identity entirely.
-     *
-     * The certificate cannot be replaced on adbd's side from here, so this is only
-     * useful after the user removed GamersHub from the authorised list. It generates
-     * a fresh key and certificate, which means pairing must be done again.
+     * Forgets the pairing identity entirely and generates a fresh key and certificate.
      */
     fun forgetIdentity() {
         runCatching { AdbConnectionManager.get(appContext ?: return).resetIdentity() }
         disconnect()
+        shellPort = 0
+        pairingPort = 0
         lastError = ""
     }
 
     /**
-     * One-shot mDNS lookup.
+     * One-shot mDNS lookup for local Wireless Debugging services.
      *
-     * Deliberately not a long-lived listener: the ports are read when the user acts,
-     * and a service that stays subscribed leaks (and keeps the radio awake) for no
-     * benefit on a screen that is open for a few seconds at a time.
+     * Normalises `serviceType` (Android returns a trailing dot like `_adb-tls-connect._tcp.`),
+     * serialises `resolveService` calls so multiple LAN devices don't trigger
+     * `FAILURE_ALREADY_ACTIVE`, and matches against this device's local interface IPs.
      */
-    private class NsdFinder(context: Context, private val type: String) {
+    private class NsdFinder(private val context: Context, private val type: String) {
 
         private val nsd = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
+        private val targetType = type.trim('.')
 
-        fun find(timeoutMs: Long): Int? {
+        fun find(timeoutMs: Long): Pair<String, Int>? {
             val manager = nsd ?: return null
-            val port = AtomicInteger(-1)
-            val latch = Object()
-            var listener: NsdManager.DiscoveryListener? = null
+            val localAddrs = localInterfaceAddresses()
+            val best = AtomicReference<Pair<String, Int>?>(null)
+            val fallback = AtomicReference<Pair<String, Int>?>(null)
+            val latch = CountDownLatch(1)
+            val resolveLock = Any()
+            var resolving = false
+            val pending = ArrayDeque<NsdServiceInfo>()
 
-            listener = object : NsdManager.DiscoveryListener {
-                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
-                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = signal()
+            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            val multicastLock = runCatching {
+                wifi?.createMulticastLock("gamershub_mdns")?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }.getOrNull()
+
+            fun resolveNext() {
+                val next: NsdServiceInfo
+                synchronized(resolveLock) {
+                    if (resolving || best.get() != null) return
+                    next = pending.removeFirstOrNull() ?: return
+                    resolving = true
+                }
+                runCatching {
+                    manager.resolveService(next, object : NsdManager.ResolveListener {
+                        override fun onResolveFailed(i: NsdServiceInfo, errorCode: Int) {
+                            synchronized(resolveLock) { resolving = false }
+                            resolveNext()
+                        }
+
+                        override fun onServiceResolved(i: NsdServiceInfo) {
+                            val host = i.host?.hostAddress?.substringBefore('%')
+                            val port = i.port
+                            if (!host.isNullOrBlank() && port > 0) {
+                                val pair = host to port
+                                if (host in localAddrs || host == LOOPBACK) {
+                                    best.compareAndSet(null, pair)
+                                    latch.countDown()
+                                } else {
+                                    fallback.compareAndSet(null, pair)
+                                }
+                            }
+                            synchronized(resolveLock) { resolving = false }
+                            resolveNext()
+                        }
+                    })
+                }.onFailure {
+                    synchronized(resolveLock) { resolving = false }
+                    resolveNext()
+                }
+            }
+
+            val listener = object : NsdManager.DiscoveryListener {
+                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = latch.countDown()
+                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
                 override fun onDiscoveryStarted(serviceType: String) = Unit
-
-                override fun onDiscoveryStopped(serviceType: String) = signal()
+                override fun onDiscoveryStopped(serviceType: String) = Unit
 
                 override fun onServiceFound(info: NsdServiceInfo) {
-                    if (info.serviceType != type) return
-                    runCatching {
-                        manager.resolveService(info, object : NsdManager.ResolveListener {
-                            override fun onResolveFailed(i: NsdServiceInfo, errorCode: Int) = Unit
-                            override fun onServiceResolved(i: NsdServiceInfo) {
-                                if (i.port > 0) port.compareAndSet(-1, i.port)
-                                signal()
-                            }
-                        })
+                    val foundType = info.serviceType?.trim('.') ?: return
+                    if (foundType != targetType) return
+                    synchronized(resolveLock) {
+                        pending.addLast(info)
                     }
+                    resolveNext()
                 }
 
                 override fun onServiceLost(info: NsdServiceInfo) = Unit
-
-                // Not named notify(): that is java.lang.Object.notify(), and a private method
-                // with the same JVM signature is an accidental override.
-                private fun signal() = synchronized(latch) { latch.notifyAll() }
             }
 
             return try {
-                manager.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
-                synchronized(latch) {
-                    if (port.get() <= 0) latch.wait(timeoutMs)
-                }
+                manager.discoverServices(targetType, NsdManager.PROTOCOL_DNS_SD, listener)
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+                best.get() ?: fallback.get()
+            } catch (_: Throwable) {
+                best.get() ?: fallback.get()
+            } finally {
                 runCatching { manager.stopServiceDiscovery(listener) }
-                port.get().takeIf { it > 0 }
-            } catch (t: Throwable) {
-                runCatching { runCatching { manager.stopServiceDiscovery(listener) } }
-                null
+                runCatching { if (multicastLock?.isHeld == true) multicastLock.release() }
             }
         }
+
+        private fun localInterfaceAddresses(): Set<String> = runCatching {
+            val set = HashSet<String>()
+            for (ni in Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                for (addr in Collections.list(ni.inetAddresses)) {
+                    addr.hostAddress?.substringBefore('%')?.let { set.add(it) }
+                }
+            }
+            set
+        }.getOrDefault(emptySet())
     }
 }

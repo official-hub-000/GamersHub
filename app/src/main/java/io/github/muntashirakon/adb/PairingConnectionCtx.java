@@ -60,6 +60,8 @@ public final class PairingConnectionCtx implements Closeable {
     private final SSLContext mSslContext;
     private final Role mRole = Role.Client;
 
+    private Socket mSocket;
+    private SSLSocket mSslSocket;
     private DataInputStream mInputStream;
     private DataOutputStream mOutputStream;
     private PairingAuthCtx mPairingAuthCtx;
@@ -127,12 +129,17 @@ public final class PairingConnectionCtx implements Closeable {
             socket = sslServerSocket.accept();
             // TODO: Write automated test scripts after removing Conscrypt dependency.
         } else { // role == Role.Client
-            socket = new Socket(mHost, mPort);
+            socket = new Socket();
+            socket.connect(new java.net.InetSocketAddress(mHost, mPort), 6_000);
         }
+        mSocket = socket;
+        socket.setSoTimeout(10_000);
         socket.setTcpNoDelay(true);
 
         // We use custom SSLContext to allow any SSL certificates
         SSLSocket sslSocket = (SSLSocket) mSslContext.getSocketFactory().createSocket(socket, mHost, mPort, true);
+        mSslSocket = sslSocket;
+        sslSocket.setSoTimeout(10_000);
         sslSocket.startHandshake();
         Log.d(TAG, "Handshake succeeded.");
 
@@ -276,15 +283,31 @@ public final class PairingConnectionCtx implements Closeable {
     @Override
     public void close() {
         Arrays.fill(mPswd, (byte) 0);
-        try {
-            mInputStream.close();
-        } catch (IOException ignore) {
+        if (mInputStream != null) {
+            try {
+                mInputStream.close();
+            } catch (IOException ignore) {
+            }
         }
-        try {
-            mOutputStream.close();
-        } catch (IOException ignore) {
+        if (mOutputStream != null) {
+            try {
+                mOutputStream.close();
+            } catch (IOException ignore) {
+            }
         }
-        if (mState != State.Ready) {
+        if (mSslSocket != null) {
+            try {
+                mSslSocket.close();
+            } catch (IOException ignore) {
+            }
+        }
+        if (mSocket != null) {
+            try {
+                mSocket.close();
+            } catch (IOException ignore) {
+            }
+        }
+        if (mPairingAuthCtx != null) {
             mPairingAuthCtx.destroy();
         }
     }

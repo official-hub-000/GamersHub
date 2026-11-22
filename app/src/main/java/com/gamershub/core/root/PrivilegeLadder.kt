@@ -156,7 +156,7 @@ object PrivilegeLadder {
         // ---- rung 4: DFRoot bootstrapped this boot ----
         // If DFRoot already ran, its module started the manager's su daemon, but the
         // app may still have no grant. Report that honestly and let the user open it.
-        if (dfrootHooked()) {
+        if (dfrootHooked(context)) {
             steps += Step(
                 "DFRoot /dev/df",
                 false,
@@ -189,7 +189,8 @@ object PrivilegeLadder {
     }
 
     /** True when this boot was patched by DFRoot, whether or not we started it. */
-    private fun dfrootHooked(): Boolean = runCatching { DfRoot.hooked() }.getOrDefault(false)
+    private fun dfrootHooked(context: Context? = null): Boolean =
+        runCatching { DfRoot.hooked(context) }.getOrDefault(false)
 
     /**
      * Gives back everything the ladder climbed: drops the root session, deletes the
@@ -202,7 +203,7 @@ object PrivilegeLadder {
         val done = mutableListOf<String>()
         // A DFRoot-bootstrapped su daemon lives outside this app and cannot be stopped
         // by it, so say that rather than implying a full teardown happened.
-        val wasDfroot = runCatching { DfRoot.hooked() }.getOrDefault(false)
+        val wasDfroot = dfrootHooked(context)
         runCatching {
             RootShell.releaseAll()
             done += "root session"

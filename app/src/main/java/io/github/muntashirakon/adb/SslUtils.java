@@ -24,6 +24,8 @@ import javax.net.ssl.X509TrustManager;
 final class SslUtils {
     private static boolean customConscrypt = false;
     private static SSLContext sslContext;
+    private static PrivateKey cachedPrivateKey;
+    private static java.security.cert.Certificate cachedCertificate;
 
     public static boolean isCustomConscrypt() {
         return customConscrypt;
@@ -31,14 +33,17 @@ final class SslUtils {
 
     @SuppressLint("TrulyRandom") // The users are already instructed to fix this issue
     @NonNull
-    public static SSLContext getSslContext(KeyPair keyPair) throws NoSuchAlgorithmException, KeyManagementException {
-        if (sslContext != null) {
+    public static synchronized SSLContext getSslContext(KeyPair keyPair) throws NoSuchAlgorithmException, KeyManagementException {
+        if (sslContext != null
+                && cachedPrivateKey == keyPair.getPrivateKey()
+                && cachedCertificate == keyPair.getCertificate()) {
             return sslContext;
         }
+        SSLContext ctx;
         try {
             Class<?> providerClass = Class.forName("org.conscrypt.OpenSSLProvider");
             Provider openSslProvder = (Provider) providerClass.getDeclaredConstructor().newInstance();
-            sslContext = SSLContext.getInstance("TLSv1.3", openSslProvder);
+            ctx = SSLContext.getInstance("TLSv1.3", openSslProvder);
             customConscrypt = true;
         } catch (NoSuchAlgorithmException e) {
             throw e;
@@ -47,13 +52,16 @@ final class SslUtils {
                 // Custom error message to inform user that they should use custom Conscrypt library.
                 throw new NoSuchAlgorithmException("TLSv1.3 isn't supported on your platform. Use custom Conscrypt library instead.");
             }
-            sslContext = SSLContext.getInstance("TLSv1.3");
+            ctx = SSLContext.getInstance("TLSv1.3");
             customConscrypt = false;
         }
         System.out.println("Using " + (customConscrypt ? "custom" : "default") + " TLSv1.3 provider...");
-        sslContext.init(new KeyManager[]{getKeyManager(keyPair)},
+        ctx.init(new KeyManager[]{getKeyManager(keyPair)},
                 new X509TrustManager[]{getAllAcceptingTrustManager()},
                 new SecureRandom());
+        sslContext = ctx;
+        cachedPrivateKey = keyPair.getPrivateKey();
+        cachedCertificate = keyPair.getCertificate();
         return sslContext;
     }
 

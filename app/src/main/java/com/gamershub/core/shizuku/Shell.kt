@@ -227,7 +227,6 @@ object Shell {
         }
         if (out == null) {
             record("$ " + command.take(70) + "  →  " + reason())
-            notifyNeeded()
         } else {
             record("$ " + command.take(70) + "  →  ok")
         }

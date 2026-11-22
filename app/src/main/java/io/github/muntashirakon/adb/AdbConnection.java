@@ -197,10 +197,11 @@ public class AdbConnection implements Closeable {
         this.mMaxData = AdbProtocol.getMaxData(api);
         this.mKeyPair = Objects.requireNonNull(keyPair);
         try {
-            this.mSocket = new Socket(host, port);
+            this.mSocket = new Socket();
+            this.mSocket.connect(new java.net.InetSocketAddress(host, port), 5_000);
         } catch (Throwable th) {
             //noinspection UnnecessaryInitCause
-            throw (IOException) new IOException().initCause(th);
+            throw (IOException) new IOException(th.getMessage(), th);
         }
         this.mPlainInputStream = mSocket.getInputStream();
         this.mPlainOutputStream = mSocket.getOutputStream();
@@ -543,12 +544,17 @@ public class AdbConnection implements Closeable {
                 } else {
                     Exception connectionException = mConnectionException;
                     if (connectionException != null) {
-                        if (connectionException instanceof javax.net.ssl.SSLProtocolException) {
+                        if (connectionException instanceof javax.net.ssl.SSLException) {
                             String message = connectionException.getMessage();
-                            if (message != null && message.contains("protocol error")) {
+                            if (connectionException instanceof javax.net.ssl.SSLHandshakeException
+                                    || (message != null && (message.contains("protocol error")
+                                    || message.contains("certificate")
+                                    || message.contains("Connection reset")
+                                    || message.contains("closed")))) {
                                 throw (AdbPairingRequiredException) (new AdbPairingRequiredException("ADB pairing is required.").initCause(connectionException));
                             }
                         }
+                        throw new IOException("Connection failed: " + connectionException.getMessage(), connectionException);
                     }
                     throw new IOException("Connection failed");
                 }
@@ -585,14 +591,8 @@ public class AdbConnection implements Closeable {
         // Wait for the connection thread to die
         mConnectionThread.interrupt();
         try {
-            mConnectionThread.join();
+            mConnectionThread.join(1_000);
         } catch (InterruptedException ignored) {
-        }
-
-        // Destroy keypair
-        try {
-            mKeyPair.destroy();
-        } catch (DestroyFailedException ignore) {
         }
     }
 

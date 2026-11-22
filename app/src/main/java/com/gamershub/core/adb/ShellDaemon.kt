@@ -74,13 +74,14 @@ object ShellDaemon {
 
     private fun socketName(): String = SOCKET_PREFIX + token
 
+    private const val TMP_LOG_FILE = "/data/local/tmp/gh-daemon-shell.log"
+
     /** Builds the shell command that starts the daemon. Exposed for the diagnostics panel. */
     fun startCommand(context: Context): String {
         val apk = context.applicationInfo.sourceDir
-        val log = java.io.File(context.filesDir, LOG_FILE).absolutePath
         return "setsid sh -c 'CLASSPATH=$apk /system/bin/app_process /system/bin " +
             "com.gamershub.daemon.GamersHubDaemon --token=$token' " +
-            ">> $log 2>&1 < /dev/null &"
+            ">> $TMP_LOG_FILE 2>&1 < /dev/null &"
     }
 
     /**
@@ -261,6 +262,11 @@ object ShellDaemon {
 
     /** Last lines of the daemon log, for a failure message that says something. */
     private fun tailOfLog(context: Context): String? {
+        val shellLog = transportFor(context)?.invoke("tail -n 6 $TMP_LOG_FILE 2>/dev/null")
+        if (!shellLog.isNullOrBlank()) {
+            val lines = shellLog.trim().lines().filter { it.isNotBlank() && !it.startsWith("__GH_EXIT__") }
+            if (lines.isNotEmpty()) return lines.joinToString(" · ")
+        }
         val log = java.io.File(context.filesDir, LOG_FILE)
         if (!log.exists()) return null
         val text = runCatching { log.readText() }.getOrNull() ?: return null

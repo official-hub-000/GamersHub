@@ -1,5 +1,6 @@
 package com.gamershub.ui.sheets
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gamershub.core.adb.ShellDaemon
 import com.gamershub.core.adb.WirelessAdb
+import com.gamershub.core.adb.WirelessNotification
 import com.gamershub.ui.components.AIcon
 import com.gamershub.ui.components.BigButton
 import com.gamershub.ui.icons.GhIcons
@@ -53,8 +57,8 @@ import kotlinx.coroutines.withContext
  * Pairing is the one step a user cannot guess. The six-digit code lives behind
  * Settings › Developer options › Wireless debugging › *Pair device with pairing code*,
  * and that dialog is only open for a short window — so this sheet shows the code
- * entry first and never makes the user hunt for a port number. The port is discovered
- * over mDNS while the dialog is open, exactly as `adb` does it.
+ * entry first and discovers the port over mDNS automatically while offering an
+ * optional manual port fallback if mDNS is blocked (VPN, emulator, restricted Wi-Fi).
  *
  * ## Why the steps are spelled out
  *
@@ -70,6 +74,9 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var code by remember { mutableStateOf("") }
+    var showManualPorts by remember { mutableStateOf(false) }
+    var manualPairPort by remember { mutableStateOf("") }
+    var manualConnectPort by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(WirelessAdb.status) }
     var daemonAlive by remember { mutableStateOf(ShellDaemon.alive) }
@@ -85,7 +92,25 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
         daemonAlive = ShellDaemon.alive
     }
 
-    SheetFrame(onDismiss = onDismiss) {
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            WirelessAdb.attached(context)
+            WirelessAdb.connected()
+            WirelessAdb.discover(context, timeoutMs = 2_500)
+        }
+        refresh()
+    }
+
+    LaunchedEffect(connected) {
+        if (connected) {
+            runCatching { WirelessNotification.dismiss(context) }
+        }
+    }
+
+    SheetFrame(onDismiss = {
+        runCatching { WirelessNotification.dismiss(context) }
+        onDismiss()
+    }) {
         // ---------------------------------------------------------------- header
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -97,6 +122,7 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
             )
             Box(
                 Modifier
+                    .testTag("wireless_close_button")
                     .clip(RoundedCornerShape(50))
                     .background(GC.SurfaceHi)
                     .clickable(onClick = onDismiss)
@@ -164,9 +190,6 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
         Spacer(Modifier.height(14.dp))
 
         // ---------------------------------------------------------------- daemon
-        // This is the difference between "a shell while ADB is on" and Shizuku's actual
-        // behaviour. It is offered as soon as any shell exists, including the one the
-        // pairing above just created.
         Box(
             Modifier
                 .fillMaxWidth()
@@ -225,7 +248,9 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         }
                     },
                     primary = !daemonAlive,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wireless_daemon_button")
                 )
             }
         }
@@ -251,6 +276,16 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(10.dp))
 
+            val fieldColors = TextFieldDefaults.colors(
+                focusedContainerColor = RomKit.Panel,
+                unfocusedContainerColor = RomKit.Panel,
+                focusedTextColor = GC.Text,
+                unfocusedTextColor = GC.Text,
+                cursorColor = accent,
+                focusedIndicatorColor = accent,
+                unfocusedIndicatorColor = RomKit.Stroke
+            )
+
             TextField(
                 value = code,
                 onValueChange = { input ->
@@ -258,20 +293,57 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                     // produces a pairing failure that looks like a wrong code.
                     code = input.filter { it.isDigit() }.take(6)
                 },
-                placeholder = { Text("six-digit code", color = GC.TextDim, fontSize = 13.sp) },
+                placeholder = { Text("six-digit pairing code", color = GC.TextDim, fontSize = 13.sp) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = RomKit.Panel,
-                    unfocusedContainerColor = RomKit.Panel,
-                    focusedTextColor = GC.Text,
-                    unfocusedTextColor = GC.Text,
-                    cursorColor = accent,
-                    focusedIndicatorColor = accent,
-                    unfocusedIndicatorColor = RomKit.Stroke
-                ),
-                modifier = Modifier.fillMaxWidth()
+                colors = fieldColors,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("wireless_pairing_code_input")
             )
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                if (showManualPorts) "Hide manual port options" else "Enter ports manually (if mDNS fails)",
+                color = accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .testTag("wireless_manual_ports_toggle")
+                    .clickable { showManualPorts = !showManualPorts }
+                    .padding(vertical = 4.dp)
+            )
+
+            AnimatedVisibility(visible = showManualPorts) {
+                Column {
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextField(
+                            value = manualPairPort,
+                            onValueChange = { manualPairPort = it.filter { c -> c.isDigit() }.take(5) },
+                            placeholder = { Text("pairing port (auto)", color = GC.TextDim, fontSize = 12.sp) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = fieldColors,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("wireless_pair_port_input")
+                        )
+                        TextField(
+                            value = manualConnectPort,
+                            onValueChange = { manualConnectPort = it.filter { c -> c.isDigit() }.take(5) },
+                            placeholder = { Text("connect port (auto)", color = GC.TextDim, fontSize = 12.sp) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            colors = fieldColors,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("wireless_connect_port_input")
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(10.dp))
 
             BigButton(
@@ -282,10 +354,12 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         return@BigButton
                     }
                     if (busy.isNotBlank()) return@BigButton
+                    val pPort = manualPairPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 0
+                    val cPort = manualConnectPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 0
                     scope.launch {
-                        busy = "Looking for adbd…"
+                        busy = if (pPort > 0) "Pairing on port $pPort…" else "Looking for adbd…"
                         val paired = withContext(Dispatchers.IO) {
-                            WirelessAdb.pair(context, code)
+                            WirelessAdb.pair(context, code, pPort)
                         }
                         if (!paired.first) {
                             busy = ""
@@ -295,7 +369,7 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         }
                         busy = "Paired. Opening the shell…"
                         val conn = withContext(Dispatchers.IO) {
-                            WirelessAdb.connect(context)
+                            WirelessAdb.connect(context, portOverride = cPort)
                         }
                         busy = ""
                         message = if (conn.first) {
@@ -307,7 +381,9 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                     }
                 },
                 primary = true,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("wireless_pair_connect_button")
             )
         } else {
             // Already connected: the useful action is the opposite one.
@@ -328,7 +404,23 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         }
                     },
                     primary = false,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("wireless_disconnect_button")
+                )
+                BigButton(
+                    text = "FORGET PAIRING",
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { WirelessAdb.forgetIdentity() }
+                            message = "Identity cleared — pair again with a new 6-digit code."
+                            refresh()
+                        }
+                    },
+                    primary = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("wireless_forget_button")
                 )
             }
         }
@@ -344,11 +436,12 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                     text = "ALREADY PAIRED · CONNECT",
                     onClick = {
                         if (busy.isNotBlank()) return@BigButton
+                        val cPort = manualConnectPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 0
                         scope.launch {
-                            busy = "Finding the current port…"
+                            busy = if (cPort > 0) "Connecting to port $cPort…" else "Finding the current port…"
                             val res = withContext(Dispatchers.IO) {
-                                WirelessAdb.discover(context)
-                                WirelessAdb.connect(context)
+                                if (cPort == 0) WirelessAdb.discover(context)
+                                WirelessAdb.connect(context, portOverride = cPort)
                             }
                             busy = ""
                             message = if (res.first) "Connected — ${res.second}" else res.second
@@ -356,8 +449,24 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                         }
                     },
                     primary = false,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("wireless_reconnect_button")
                 )
+                if (status == WirelessAdb.Status.UNAUTHORISED || status == WirelessAdb.Status.NOT_PAIRED) {
+                    BigButton(
+                        text = "RESET KEY",
+                        onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { WirelessAdb.forgetIdentity() }
+                                message = "ADB key reset — pair again with the 6-digit code."
+                                refresh()
+                            }
+                        },
+                        primary = false,
+                        modifier = Modifier.testTag("wireless_reset_key_button")
+                    )
+                }
             }
         }
 

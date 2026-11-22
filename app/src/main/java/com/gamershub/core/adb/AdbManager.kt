@@ -5,7 +5,7 @@ import android.os.Build
 import android.util.Base64
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbStream
-import io.github.muntashirakon.adb.LocalServices
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -131,12 +131,9 @@ object AdbIdentity {
 
         runCatching {
             File(context.filesDir, KEY_FILE).writeBytes(pair.private.encoded)
-            File(context.filesDir, CERT_FILE).writeBytes(
-                Base64.encode(
-                    cert.encoded,
-                    Base64.NO_WRAP or Base64.NO_PADDING
-                ).decodeToString().toByteArray()
-            )
+            val b64 = Base64.encodeToString(cert.encoded, Base64.DEFAULT).trim()
+            val pem = "-----BEGIN CERTIFICATE-----\n$b64\n-----END CERTIFICATE-----\n"
+            File(context.filesDir, CERT_FILE).writeText(pem)
         }
         return pair.private to cert
     }
@@ -145,9 +142,18 @@ object AdbIdentity {
         KeyFactory.getInstance("RSA")
             .generatePrivate(PKCS8EncodedKeySpec(file.readBytes()))
 
-    private fun readCertificate(file: File): Certificate =
-        CertificateFactory.getInstance("X.509")
-            .generateCertificate(file.inputStream())
+    private fun readCertificate(file: File): Certificate {
+        val raw = file.readBytes()
+        val cf = CertificateFactory.getInstance("X.509")
+        // Support DER binary, proper PEM, and legacy headerless Base64 written by older builds.
+        val derOrPem = if (raw.isNotEmpty() && (raw[0].toInt() == 0x30 ||
+                raw.decodeToString().trimStart().startsWith("-----BEGIN"))) {
+            raw
+        } else {
+            Base64.decode(raw, Base64.DEFAULT)
+        }
+        return cf.generateCertificate(ByteArrayInputStream(derOrPem))
+    }
 }
 
 /**
@@ -169,10 +175,7 @@ internal object AdbExec {
     fun run(manager: AdbConnectionManager, command: String, timeoutMs: Long = 12_000): String? {
         if (!manager.isConnected) return null
         return try {
-            val stream = manager.openStream(
-                LocalServices.SHELL,
-                "sh", "-c", "$command; echo $EXIT_TOKEN=\$?"
-            )
+            val stream = manager.openStream("shell:$command; echo $EXIT_TOKEN=\$?")
             stream.use { read(it, timeoutMs) }
         } catch (t: Throwable) {
             null

@@ -154,7 +154,7 @@ public class AdbStream implements Closeable {
         synchronized (mReadQueue) {
             byte[] data;
             // Wait for the connection to close or data to be received
-            while ((data = mReadQueue.poll()) == null && !mIsClosed) {
+            while ((data = mReadQueue.poll()) == null && !mIsClosed && !mPendingClose) {
                 try {
                     mReadQueue.wait();
                 } catch (InterruptedException e) {
@@ -172,13 +172,14 @@ public class AdbStream implements Closeable {
                 }
             }
 
-            if (mIsClosed) {
-                throw new IOException("Stream closed.");
-            }
-
             if (mPendingClose && mReadQueue.isEmpty()) {
                 // The peer closed the stream, and we've finished reading the stream data, so this stream is finished
                 mIsClosed = true;
+                return -1;
+            }
+
+            if (mIsClosed) {
+                throw new IOException("Stream closed.");
             }
         }
 
