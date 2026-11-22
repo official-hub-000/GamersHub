@@ -377,11 +377,12 @@ object RootShell {
         // from the app. Route those through that shell instead of failing every command
         // just because we have no su binary of our own.
         if (method.contains("Shizuku", ignoreCase = true) || suBinary() == null) {
-            runCatching { com.gamershub.core.shizuku.Shell.exec(command) }
-                ?.let { viaShell ->
-                    record("$ " + command.take(70) + " → root (shizuku shell)")
-                    return viaShell
-                }
+            val viaShell = runCatching { com.gamershub.core.shizuku.Shell.exec(command) }
+                .getOrNull()
+            if (viaShell != null) {
+                record("$ " + command.take(70) + " → root (shizuku shell)")
+                return viaShell
+            }
         }
 
         // Session died (device revoked root, process recycled): retry once one-shot.
