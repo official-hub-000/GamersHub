@@ -180,7 +180,7 @@ object IssueReporter {
             hasFailure = hasFailure
         )
     }
-.getOrNull()
+
     /** Wipes the log after a report has been sent, so the next popup is a *new* failure. */
     fun clearLog(context: Context) {
         runCatching { logFile(context).delete() }
