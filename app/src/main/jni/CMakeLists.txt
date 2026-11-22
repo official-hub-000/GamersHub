@@ -55,3 +55,31 @@ set_target_properties(bootstrap PROPERTIES
     SUFFIX ".so"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 target_link_options(bootstrap PRIVATE -Wl,-z,max-page-size=16384)
+
+# The payload and the app have to agree on where the staged executables live, and three
+# of the four parties compute it in different languages. The native side no longer
+# guesses: it writes its compiled path into this file at build time, the app reads it and
+# compares. A mismatch is refused up front instead of loading the module, going permissive
+# and exec'ing a path that does not exist.
+#
+# It is an ELF stub rather than a text file because AGP only packages lib*.so out of
+# nativeLibraryDir; the path itself is appended as a trailer and read back by offset.
+set(PAYLOAD_DIR "/data/user_de/0/com.gamershub")
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libdfroot-path.so"
+    COMMAND "${CMAKE_C_COMPILER}" -x c -c -o "${CMAKE_CURRENT_BINARY_DIR}/pathmarker.o" "${JNI_DIR}/pathmarker.c"
+    COMMAND "${CMAKE_C_COMPILER}" -shared -o "${CMAKE_CURRENT_BINARY_DIR}/libdfroot-path.so" "${CMAKE_CURRENT_BINARY_DIR}/pathmarker.o" -nostdlib
+    COMMAND "${CMAKE_COMMAND}" -E echo "${PAYLOAD_DIR}/bootstrap" > "${CMAKE_CURRENT_BINARY_DIR}/marker.tmp"
+    COMMAND cat "${CMAKE_CURRENT_BINARY_DIR}/marker.tmp" >> "${CMAKE_CURRENT_BINARY_DIR}/libdfroot-path.so"
+    DEPENDS "${JNI_DIR}/pathmarker.c"
+    COMMENT "Writing payload layout marker (${PAYLOAD_DIR})"
+)
+add_custom_target(pathmarker DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/libdfroot-path.so")
+add_dependencies(dfroot pathmarker)
+add_dependencies(bootstrap pathmarker)
+
+# AGP collects lib*.so from the CMake library output dir, so copy the marker there.
+add_custom_command(TARGET pathmarker POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_BINARY_DIR}/libdfroot-path.so"
+            "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libdfroot-path.so")

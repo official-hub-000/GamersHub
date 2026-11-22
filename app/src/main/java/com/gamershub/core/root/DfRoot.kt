@@ -139,13 +139,17 @@ object DfRoot {
         }.getOrDefault(false)
 
         val notes = buildList {
-            if (!installedHere) {
-                add("DFRoot is not installed. Install it to gain root without unlocking the bootloader.")
+            // The payload is embedded — it has been since the LKM build was wired into CI —
+            // so the old "DFRoot is not installed, install it" line was telling users to
+            // install an app they do not need while the exploit sat unused in their APK.
+            if (DfRootRunner.payloadPresent(context)) {
+                add("DFRoot 4.7 payload embedded in this build (arm64)")
+            } else {
+                add("The embedded DFRoot payload cannot run on this install: " +
+                    DfRootRunner.payloadProblem(context))
             }
-            if (installedHere) {
-                add("DFRoot ${version(context)} installed")
-                if (hooked()) add("/dev/df present — this boot is already patched")
-            }
+            if (installedHere) add("The standalone DFRoot ${version(context)} app is also installed")
+            if (hooked()) add("/dev/df present — this boot is already patched")
             if (!supported) {
                 add(
                     "Your kernel is ${kmi.major}.${kmi.minor} on Android ${kmi.android}. " +
@@ -159,9 +163,6 @@ object DfRoot {
                 if (canBootstrap) "SU manager found and bootstrap-capable"
                 else "No bootstrap-capable SU manager found — install KernelSU, KernelSU-Next or KowSU first; the exploit only starts their su daemon"
             )
-            if (!DfRootRunner.payloadPresent(context)) {
-                add("The embedded payload cannot run here: " + DfRootRunner.payloadProblem(context))
-            }
         }
 
         return Status(

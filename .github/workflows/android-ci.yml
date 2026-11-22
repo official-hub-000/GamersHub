@@ -121,6 +121,13 @@ jobs:
       - name: Verify the ROOT tab actually works
         run: python3 tools/check_root_tab.py
 
+      # Wireless debugging and DFRoot are the two privilege transports, and both have
+      # shipped broken in ways that read identically on screen. A staging path computed
+      # in two places, a certificate stored in one encoding and read in another, and a
+      # pairing that tears nothing down are all cheap to check and expensive to miss.
+      - name: Verify the wireless and DFRoot transports
+        run: python3 tools/check_transports.py
+
       - name: Build debug APK
         run: |
           set -o pipefail

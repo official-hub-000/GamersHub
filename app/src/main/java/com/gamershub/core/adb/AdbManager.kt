@@ -2,7 +2,6 @@ package com.gamershub.core.adb
 
 import android.content.Context
 import android.os.Build
-import android.util.Base64
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
@@ -206,12 +205,15 @@ object AdbIdentity {
 
         runCatching {
             File(context.filesDir, KEY_FILE).writeBytes(pair.private.encoded)
-            File(context.filesDir, CERT_FILE).writeBytes(
-                Base64.encode(
-                    cert.encoded,
-                    Base64.NO_WRAP or Base64.NO_PADDING
-                ).decodeToString().toByteArray()
-            )
+            // Write the DER this certificate actually is.
+            //
+            // This used to Base64-encode the DER, turn that String into a ByteArray, and
+            // write *that* — so the file named gh_adb_cert.pem held base64 text, and
+            // readCertificate() handed it to CertificateFactory as if it were DER. On the
+            // one path where the stored certificate matters — the repair path, where adbd
+            // has the certificate it authorised but the file was lost — this threw, which
+            // is why "re-pairing does not help" was literally true.
+            File(context.filesDir, CERT_FILE).writeBytes(cert.encoded)
         }
         return pair.private to cert
     }

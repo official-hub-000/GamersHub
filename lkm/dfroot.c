@@ -61,10 +61,19 @@ static int __nocfi __init dfroot_init(void)
      * call_usermodehelper has nothing to exec — the run "succeeds" and no root
      * appears. DfRootRunner.payloadPresent() checks this exact string at runtime. */
     static const char bootstrap[] = "/data/user_de/0/com.gamershub/bootstrap";
+    static const char PAYLOAD_DIR[] = "/data/user_de/0/com.gamershub";
     static char cmd[512];
     static char *envp[] = { "PATH=/system/bin", NULL };
     static char *argv[] = { (char *)sh, "-c", cmd, NULL };
-    snprintf(cmd, sizeof(cmd), "touch /dev/dfm0; echo -n 'u:r:init:s0' > /proc/self/attr/exec; exec %s", bootstrap);
+    /* Hand bootstrap the directory and prefs file explicitly. It has defaults compiled
+     * in, but those defaults are a second copy of a path this module also hard-codes —
+     * and a second copy is how the two drifted apart and produced a run that loaded the
+     * module, went permissive, and exec'd nothing. The app stages into the same dir and
+     * refuses to run if the payload's declared path disagrees. */
+    snprintf(cmd, sizeof(cmd),
+             "touch /dev/dfm0; echo -n 'u:r:init:s0' > /proc/self/attr/exec; "
+             "exec %s --payload-dir %s --prefs %s/dfroot-native.xml",
+             bootstrap, PAYLOAD_DIR, PAYLOAD_DIR);
 
     // Symbol finder
     kln_kp = (struct kprobe){ .symbol_name = "kallsyms_lookup_name" };

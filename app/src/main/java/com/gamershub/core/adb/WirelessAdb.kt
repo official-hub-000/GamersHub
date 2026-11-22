@@ -208,6 +208,12 @@ object WirelessAdb {
             lastError = "Wireless pairing needs Android 10 or newer (TLS 1.3)"
             return false to lastError
         }
+        // Forget any previous connection first, for the same reason connect() does:
+        // the vendored manager bails out of connect() when it thinks it is already
+        // connected, and after pairing it thinks so. Without this, a successful pair was
+        // followed by a connect that returned false without dialing, and the sheet
+        // reported "not paired" seconds after "Paired".
+        teardownQuietly(context)
         if (manual > 0) {
             // Typed in by hand — trust it and skip discovery entirely.
             pairingPort = manual
@@ -227,6 +233,11 @@ object WirelessAdb {
             val ok = synchronized(guard) { manager.pair(target, code) }
             if (ok) {
                 lastError = ""
+                // The identity adbd has just authorised is only useful if the very next
+                // connect presents the same certificate. Make that explicit, because a
+                // silent regeneration here is indistinguishable from "pairing does not
+                // work" — the code is accepted and the shell still refuses.
+                runCatching { AdbIdentity.certificate(context) }
                 true to "Paired"
             } else {
                 lastError = "The pairing code was rejected"

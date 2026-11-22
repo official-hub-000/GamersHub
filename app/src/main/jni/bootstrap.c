@@ -9,12 +9,22 @@
 #include <unistd.h>
 
 #define BLKROSET   0x125d
-/* Same fix as lkm/dfroot.c: these are this APK's paths, not upstream's package
- * name. The staged ksud and the prefs file both live under com.gamershub. */
-#define KSUD_STAGE "/data/user_de/0/com.gamershub/ksud"
-#define KSUD       "/data/adb/ksud"
-#define PREFS_PATH "/data/user_de/0/com.gamershub/shared_prefs/dfroot.xml"
-#define MODULES_DIR "/data/adb/modules"
+/* Defaults only. The kernel module passes --payload-dir and --prefs when it execs this
+ * binary, and those win. They exist because three parties have to agree on one absolute
+ * path and they are computed in three languages: baking it in here as well as in the
+ * module is how they drifted apart in the first place. */
+#define DEFAULT_PAYLOAD_DIR "/data/user_de/0/com.gamershub"
+#define DEFAULT_PREFS       "/data/user_de/0/com.gamershub/shared_prefs/dfroot.xml"
+#define KSUD                "/data/adb/ksud"
+#define MODULES_DIR         "/data/adb/modules"
+
+static const char *payload_dir = DEFAULT_PAYLOAD_DIR;
+static const char *prefs_path  = DEFAULT_PREFS;
+
+static void build_paths(char *ksud_out, size_t ksud_size)
+{
+    snprintf(ksud_out, ksud_size, "%s/ksud", payload_dir);
+}
 
 static int pref_true(const char *buf, const char *key)
 {
@@ -30,7 +40,7 @@ static int pref_true(const char *buf, const char *key)
 static int read_prefs(char *su_manager, size_t su_manager_size, int *soft_reboot,
                       int *disable_modules)
 {
-    int fd = open(PREFS_PATH, O_RDONLY);
+    int fd = open(prefs_path, O_RDONLY);
     if (fd < 0) return -1;
 
     char buf[4096];
@@ -195,8 +205,15 @@ static int disable_modules(void)
     return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    for (int i = 1; i + 1 < argc; i++) {
+        if (strcmp(argv[i], "--payload-dir") == 0)
+            payload_dir = argv[++i];
+        else if (strcmp(argv[i], "--prefs") == 0)
+            prefs_path = argv[++i];
+    }
+
     touch("/dev/dfm1");
     char su_manager[256];
     int soft_reboot, disable_mods;
@@ -222,7 +239,9 @@ int main(void)
     }
 
     touch("/dev/dfm5");    
-    if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
+    char ksud_stage[512];
+    build_paths(ksud_stage, sizeof(ksud_stage));
+    if (run_ctx(NULL, (char *[]){ ksud_stage, "late-load", "--package-name", su_manager, NULL }) == 0) {
         touch("/dev/dfm6");
         if (soft_reboot) {
             while (late_load_running()) sleep(1);

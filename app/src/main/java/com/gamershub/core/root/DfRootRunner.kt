@@ -52,8 +52,7 @@ object DfRootRunner {
      * device-protected files dir — not a path under some other package name. It is
      * also the string the native payload is compiled with (see `lkm/dfroot.c`).
      */
-    fun bootstrapPath(context: Context): String =
-        java.io.File(deContext(context).filesDir.parentFile, "bootstrap").absolutePath
+    fun bootstrapPath(context: Context): String = DfPaths.bootstrapPath(context)
 
     /** The payload is compiled for a package name; this is the one it must match. */
     private const val PAYLOAD_PACKAGE = "com.gamershub"
@@ -71,19 +70,38 @@ object DfRootRunner {
      * doing nothing.
      */
     fun payloadPresent(context: Context): Boolean = runCatching {
-        val bin = java.io.File(context.applicationInfo.nativeLibraryDir, "libdfroot.so")
-        val expectedParent = "/data/user_de/0/$PAYLOAD_PACKAGE"
-        bin.exists() && context.packageName == PAYLOAD_PACKAGE &&
-            bootstrapPath(context).substringBeforeLast('/') == expectedParent
+        val dir = context.applicationInfo.nativeLibraryDir
+        java.io.File(dir, "libdfroot.so").exists() &&
+            java.io.File(dir, "libbootstrap.so").exists() &&
+            context.packageName == PAYLOAD_PACKAGE &&
+            // The payload declares the directory it was compiled to exec, so this is a
+            // real comparison against the build rather than against a second guess made
+            // here. It used to hard-code "/data/user_de/0/$PAYLOAD_PACKAGE" and compare it
+            // with `createDeviceProtectedStorageContext().filesDir.parentFile`, which is
+            // frequently the credential-encrypted dir — so a perfectly good payload was
+            // refused, and DFRoot could not run at all.
+            DfPaths.layoutMatches(context)
     }.getOrDefault(false)
 
     /** Human-readable reason the payload cannot run, or "" when it can. */
-    fun payloadProblem(context: Context): String = when {
-        !java.io.File(context.applicationInfo.nativeLibraryDir, "libdfroot.so").exists() ->
-            "This build has no DFRoot payload (it is arm64-only)."
-        context.packageName != PAYLOAD_PACKAGE ->
-            "The payload is built for $PAYLOAD_PACKAGE, but this install is ${context.packageName}."
-        else -> ""
+    fun payloadProblem(context: Context): String {
+        val dir = context.applicationInfo.nativeLibraryDir
+        val compiled = DfPaths.compiledBootstrapPath(context)
+        return when {
+            !java.io.File(dir, "libdfroot.so").exists() ->
+                "This build has no DFRoot payload (it is arm64-only)."
+            context.packageName != PAYLOAD_PACKAGE ->
+                "The payload is built for $PAYLOAD_PACKAGE, but this install is " +
+                    "${context.packageName}."
+            compiled == null ->
+                "The payload does not declare its staging path (libdfroot-path.so is " +
+                    "missing), so the module could load and then exec nothing."
+            compiled != DfPaths.bootstrapPath(context) ->
+                "The payload stages to $compiled but this install stages to " +
+                    "${DfPaths.bootstrapPath(context)} — the module would exec a path that " +
+                    "does not exist."
+            else -> ""
+        }
     }
 
     /**
@@ -179,9 +197,19 @@ object DfRootRunner {
             synchronized(tailBuf) { tailBuf.append(line).also { if (it.length > LOG_TAIL) it.delete(0, it.length - LOG_TAIL) } }
         }
         return try {
-            val rc = df.root.ExploitRunner.run(deContext(context), object : df.root.IReporter {
+            // Pass the plain context. `df.root.ExploitRunner` must not be handed the
+            // device-protected one: it stages executables into DfPaths' directory and
+            // reads `nativeLibraryDir`, both of which are properties of the real install.
+            // Passing the DE context here is how the staging dir and the compiled-in exec
+            // path used to drift apart.
+            val rc = df.root.ExploitRunner.run(context.applicationContext, object : df.root.IReporter {
                 override fun report(msg: String) = tap(msg)
             })
+            // `ksud late-load` returning 0 means the daemon was *started*, not that it is
+            // answering. The exploit used to return here, ADOPT ROOT was pressed
+            // immediately, `su` was not up yet, and the ladder reported "no rung
+            // answered" — which reads exactly like "DFRoot did not work".
+            if (rc == 0) awaitSu(context, tap)
             com.gamershub.GamersHubApp.noteRun(
                 "dfroot",
                 "exit $rc · " + synchronized(tailBuf) { tailBuf.toString() }
@@ -194,6 +222,43 @@ object DfRootRunner {
             2
         }
     }
+
+    /**
+     * Waits for the su daemon this run just started to actually answer.
+     *
+     * Bounded, and it says what it saw on every outcome. A daemon that never comes up is
+     * the difference between "run the exploit again" and "the manager did not accept the
+     * late load", and the user cannot tell those apart without this line.
+     */
+    private fun awaitSu(context: Context, tap: (String) -> Unit) {
+        val deadline = System.currentTimeMillis() + SU_WAIT_MS
+        tap("waiting for the su daemon…\n")
+        while (System.currentTimeMillis() < deadline) {
+            val answered = runCatching {
+                val bin = RootShell.suBinary() ?: "su"
+                val p = ProcessBuilder(bin, "-c", "id").redirectErrorStream(true).start()
+                val out = p.inputStream.bufferedReader().readText()
+                p.waitFor()
+                out.contains("uid=0")
+            }.getOrDefault(false)
+            if (answered) {
+                tap("su is answering as uid 0.\n")
+                // Pick the grant up now rather than making the user find ADOPT ROOT: the
+                // whole point of the run was to end up privileged.
+                runCatching { RootShell.acquire(context) }
+                return
+            }
+            Thread.sleep(500)
+        }
+        tap(
+            "the su daemon did not answer within ${SU_WAIT_MS / 1000}s. If ksud reported " +
+                "success above, the manager may need a moment: press ADOPT ROOT. If it " +
+                "reported an error, enable \"Disable KSU modules\" and run again.\n"
+        )
+    }
+
+    /** How long to wait for `su` after a successful late-load. */
+    private const val SU_WAIT_MS = 15_000L
 
     private fun post(onLine: (String) -> Unit, msg: String) {
         Handler(Looper.getMainLooper()).post { onLine(msg) }

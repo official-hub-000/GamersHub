@@ -185,7 +185,21 @@ object Shell {
      * user service can no longer make privileged actions look "ungranted".
      * The bound user service remains as a fallback for older Shizuku builds.
      */
+    /**
+     * Supplies the context the wireless and daemon transports need.
+     *
+     * [exec] routes through those transports, and it used to read `appContext` which
+     * only [ensure] ever set — so any call site that ran before `ensure()` got a shell
+     * that silently answered null even with a live wireless connection. The application
+     * object is always available, so this is the floor rather than a new requirement.
+     */
+    private fun ctx(): Context? =
+        appContext ?: com.gamershub.GamersHubApp.instance?.applicationContext?.also {
+            appContext = it
+        }
+
     fun exec(command: String): String? {
+        ctx()
         // Root first: when the engine is on and root was granted, every existing
         // Shizuku call site transparently gets the deeper tree (system-only paths,
         // property writes, pkgs that shell cannot touch).
@@ -209,7 +223,8 @@ object Shell {
         // One fewer hop than the binder, and it keeps working when Shizuku's server
         // has been force-stopped.
         if (com.gamershub.core.adb.WirelessAdb.connected()) {
-            com.gamershub.core.adb.WirelessAdb.exec(appContext ?: return null, command)?.let { out ->
+            val ctx = ctx() ?: return null
+            com.gamershub.core.adb.WirelessAdb.exec(ctx, command)?.let { out ->
                 record("$ " + command.take(70) + "  →  wireless adb")
                 return out
             }

@@ -147,7 +147,8 @@ object Manual {
                 "Tapping Connect reuses the port from your last session first, so a working setup reconnects without discovery.",
                 "Auto-detect uses mDNS, then falls back to adbd's fixed port — it no longer reports \"not on\" just because mDNS is quiet.",
                 "On Android 13+ allow Nearby devices when asked — without it discovery cannot answer.",
-                "If the port changed (wireless debugging toggled, or the phone rebooted), tap Connect again: the app drops the dead port and rediscovers."
+                "If the port changed (wireless debugging toggled, or the phone rebooted), tap Connect again: the app drops the dead port and rediscovers.",
+                "After a successful pair the sheet connects immediately. Pressing CONNECT again after a drop is always safe — the old connection is thrown away before every attempt, which is what used to keep a dead link reporting itself as live."
             ),
             note = "A failed pair is almost always a closed dialog or a stale code. A failed *connect* is usually a changed port — reopen Wireless debugging to read the current port. If the sheet says \"Pairing unsupported here\", neither applies: the phone is fine and the app's TLS stack could not export keying material, which is a build fault to report, not something to re-pair or reboot for.",
             sheet = "wireless",
@@ -643,10 +644,15 @@ object Manual {
                 "Root ▸ TEMPORARY ROOT · DFROOT ▸ scan.",
                 "The section lists the installed managers it found and the kernel it expects.",
                 "Pick the SU manager the module should attach to — KernelSU, KernelSU-Next, KowSU or Magisk.",
-                "Hold the session to use root; release it when you are done.",
+                "Press RUN DFROOT and leave the screen open while it works.",
+                "After it reports success it waits up to 15 s for su itself, then picks the grant up. Press ADOPT ROOT if that wait times out.",
                 "Rebooting always clears it."
             ),
-            note = "The scan now refuses to run when the payload is staged for a different app id, which is the failure that used to report success and then produce no root. \"Disable KSU modules\" is on by default: an incompatible module is the usual reason the module loads and root still does not appear."
+            note = "The payload is embedded in this APK — you do not need to install the standalone DFRoot app. " +
+                "If the run says ksud succeeded but no root appears, turn on \"Disable KSU modules\" and run again: " +
+                "an incompatible module is the usual reason. The app also refuses to run when its staging path and " +
+                "the payload's compiled-in path disagree, because that used to load the module, go permissive and " +
+                "exec nothing."
         ),
         HelpTopic(
             id = "session-root",
