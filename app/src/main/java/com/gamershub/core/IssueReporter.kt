@@ -1,13 +1,8 @@
 package com.gamershub.core
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
-import androidx.core.content.FileProvider
 import com.gamershub.BuildConfig
 import com.gamershub.GamersHubApp
 import java.io.File
@@ -33,14 +28,12 @@ import java.util.Locale
  * - the build (versionName + versionCode),
  * - whatever the user typed.
  *
- * Nothing is uploaded. [share] hands the text to whichever app the user picks and
- * [openGitHubIssue] opens a prefilled issue; both are explicit taps.
+ * Nothing is uploaded from here. This object only *builds* the text and tracks which
+ * failure has already been offered. Delivery is [com.gamershub.core.SupportMail]'s job,
+ * and it hands a mail draft to the user's own email app — see that class for why the
+ * report cannot leave the device without the user pressing send.
  */
 object IssueReporter {
-
-    /** Where reports are filed. */
-    const val ISSUES_URL = "https://github.com/official-hub-000/GamersHub/issues"
-    const val NEW_ISSUE_URL = "https://github.com/official-hub-000/GamersHub/issues/new"
 
     private const val PREFS = "gamershub_reports"
     private const val KEY_LAST_SIG = "last_seen_signature"
@@ -187,78 +180,7 @@ object IssueReporter {
             hasFailure = hasFailure
         )
     }
-
-    /* ------------------------------------------------------------------ sending */
-
-    /** System share sheet with the report as text plus a .txt attachment. */
-    fun share(context: Context, report: Report) {
-        runCatching {
-            val file = writeFile(context, report)
-            val uri = file?.let {
-                runCatching {
-                    FileProvider.getUriForFile(context, context.packageName + ".files", it)
-                }.getOrNull()
-            }
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, report.title)
-                putExtra(Intent.EXTRA_TEXT, report.text)
-                if (uri != null) {
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            }
-            context.startActivity(
-                Intent.createChooser(send, "Send the report").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
-    }
-
-    /** Plain-text file in the cache dir (shareable through the existing FileProvider). */
-    fun writeFile(context: Context, report: Report): File? = runCatching {
-        val file = File(File(context.cacheDir, "reports").apply { mkdirs() }, report.fileName)
-        file.writeText(report.text)
-        file
-    }.getOrNull()
-
-    fun copy(context: Context, report: Report) {
-        runCatching {
-            val cm = context.getSystemService(ClipboardManager::class.java) ?: return
-            cm.setPrimaryClip(ClipData.newPlainText("GamersHub report", report.text))
-        }
-    }
-
-    /**
-     * A prefilled GitHub issue.
-     *
-     * URLs above ~8 KB are rejected by browsers, so the body is trimmed and the note
-     * says to attach the saved file for the full trace. Trimming the *report* is worse:
-     * a truncated stack trace is a useless bug report.
-     */
-    fun openGitHubIssue(context: Context, report: Report) {
-        val body = report.text.let {
-            if (it.length <= 5200) it
-            else it.take(4800) + "\n\n…trimmed for the URL. Tap Save file in GamersHub and attach it for the full log."
-        }
-        val url = NEW_ISSUE_URL +
-            "?title=" + Uri.encode(report.title) +
-            "&body=" + Uri.encode(body) +
-            "&labels=" + Uri.encode("bug")
-        runCatching {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
-    }
-
-    fun openIssues(context: Context) {
-        runCatching {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(ISSUES_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
-    }
-
+.getOrNull()
     /** Wipes the log after a report has been sent, so the next popup is a *new* failure. */
     fun clearLog(context: Context) {
         runCatching { logFile(context).delete() }

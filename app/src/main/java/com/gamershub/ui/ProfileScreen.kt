@@ -374,9 +374,12 @@ fun ProfileScreen(
                     )
                 }
                 Spacer(Modifier.width(10.dp))
+                // Was the GitHub issues page — which is not where reports are read any
+                // more. The chat icon now opens the same email draft as Help & Support,
+                // so the card cannot dead-end.
                 CircleIconButton(
                     GhIcons.Chat,
-                    onClick = { com.gamershub.core.IssueReporter.openIssues(context) }
+                    onClick = onReport
                 )
                 Spacer(Modifier.width(8.dp))
                 CircleIconButton(

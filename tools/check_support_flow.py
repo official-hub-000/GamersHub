@@ -139,7 +139,42 @@ def check():
         if pattern not in diag:
             problems.append(f"sanitize() no longer redacts {pattern!r}")
 
-    # 8 ---------------------------------------------------------------- retention
+    # 8 ---------------------------------------------------------------- wiring
+    # A support entry point that calls something removed is a button that does nothing.
+    shell = (SRC / "ui/RootShell.kt").read_text()
+    profile = (SRC / "ui/ProfileScreen.kt").read_text()
+    tools = (SRC / "ui/ToolsScreen.kt").read_text()
+    reporter = (SRC / "core/IssueReporter.kt").read_text()
+
+    if "openIssues(" in (profile + tools + shell):
+        problems.append(
+            "a support entry point still calls IssueReporter.openIssues(), which was "
+            "removed when reports moved to email — the button would do nothing"
+        )
+    if "openGitHubIssue(" in (profile + tools + shell):
+        problems.append(
+            "a support entry point still calls openGitHubIssue(), which was removed"
+        )
+    # The startup-crash offer must actually raise the sheet, not just record a pending
+    # crash that nothing ever reads.
+    raises_sheet = re.search(r'(?m)^\s*autoReport = true\s*$', shell) is not None
+    if "StartupWatch.onLaunch" in shell and not raises_sheet:
+        problems.append(
+            "RootShell reads the pending startup crash but never raises the report sheet, "
+            "so a crash from the previous launch is offered to nobody"
+        )
+    if "StartupWatch.onLaunch" in shell and "autoPopupEnabled" not in shell:
+        problems.append(
+            "the startup-crash offer ignores the 'offer this after a crash' switch, so the "
+            "feature cannot be turned off"
+        )
+    # Every sheet key opened by Tools must resolve to a route.
+    routes = set(re.findall(r'"([a-z]+)" -> SheetState\.', shell))
+    opened = set(re.findall(r'onOpenSheet\("([a-z]+)"\)', tools))
+    for key in sorted(opened - routes):
+        problems.append(f"Tools opens sheet {key!r} but RootShell has no route for it")
+
+    # 9 ---------------------------------------------------------------- retention
     if "pruneOld" not in diag:
         problems.append("report files are no longer pruned — they would accumulate forever")
     if "cacheDir" not in diag:

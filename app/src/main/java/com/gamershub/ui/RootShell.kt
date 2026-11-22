@@ -187,7 +187,30 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         }
         // A crash that killed the previous launch could not be offered at the time.
         // Pick it up once here, and let the reporter ask about it.
-        var startupCrash by remember { mutableStateOf(com.gamershub.core.StartupWatch.onLaunch(context)) }
+        // Declared before anything that can set it: the startup-crash effect below and
+        // the mid-session poll both raise it.
+        var autoReport by remember { mutableStateOf(false) }
+        var startupCrash by remember { mutableStateOf<com.gamershub.core.StartupWatch.Pending?>(null) }
+        LaunchedEffect(Unit) {
+            // Honour the same switch the mid-session popup uses: "offer this after a
+            // crash" is one setting, not two. Read on a coroutine so a cold start is not
+            // spent on a prefs read before the first frame.
+            if (!com.gamershub.core.IssueReporter.autoPopupEnabled(context)) {
+                com.gamershub.core.StartupWatch.resolve(context)
+                return@LaunchedEffect
+            }
+            val pending = withContext(Dispatchers.IO) {
+                com.gamershub.core.StartupWatch.onLaunch(context)
+            }
+            if (pending != null) {
+                startupCrash = pending
+                // THE POINT OF THE FEATURE: offer it. Before this, the crash was detected
+                // and quietly dropped — the flag was consumed at composition, nothing
+                // opened the sheet, and the offer count was spent without the user ever
+                // seeing anything.
+                autoReport = true
+            }
+        }
         var sheet by remember { mutableStateOf<SheetState>(SheetState.None) }
         // Engine.start() talks to adbd and the shell; it must never run on the UI thread.
         val shellScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -830,7 +853,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         // reporter opens by itself with the log already inside it, and the log can be
         // sent from there. It is polled rather than checked once, because a feature can
         // break halfway through a session without the process dying.
-        var autoReport by remember { mutableStateOf(false) }
+
         LaunchedEffect(Unit) {
             while (true) {
                 if (com.gamershub.core.IssueReporter.shouldAutoOpen(context)) autoReport = true

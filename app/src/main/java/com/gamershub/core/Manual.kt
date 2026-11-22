@@ -914,7 +914,7 @@ object Manual {
                 "Open Report a problem ▸ READ the exact file, to see the log section in full.",
                 "The steps: line is the breadcrumb trail — the last screen you were on.",
                 "The first line after it is the exception and the file that threw it.",
-                "Copy takes the whole thing to the clipboard."
+                "The whole file goes with the email when you tap OPEN EMAIL DRAFT."
             )
         ),
         HelpTopic(
