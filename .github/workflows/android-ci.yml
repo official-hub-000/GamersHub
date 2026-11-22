@@ -113,6 +113,14 @@ jobs:
       - name: Verify the Help & Support email flow
         run: python3 tools/check_support_flow.py
 
+      # Every control on the ROOT tab has to be pressable and has to report what
+      # happened. These are the specific defects that made it look dead: ready()
+      # requiring a live session, the engine never asking for root, a reboot sent
+      # through a channel the teardown had just closed, and a poll loop that stopped
+      # on its first exception and froze the whole tab.
+      - name: Verify the ROOT tab actually works
+        run: python3 tools/check_root_tab.py
+
       - name: Build debug APK
         run: |
           set -o pipefail

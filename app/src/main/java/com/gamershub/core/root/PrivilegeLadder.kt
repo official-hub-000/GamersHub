@@ -68,7 +68,17 @@ object PrivilegeLadder {
          * is labelled separately because the user should be able to tell "I got this
          * from the exploit" apart from "I got this from a session hold".
          */
-        DFROOT_ROOT("dfroot", "root via DFRoot — per boot")
+        DFROOT_ROOT("dfroot", "root via DFRoot — per boot"),
+
+        /**
+         * uid 0 through a shell that already holds it, usually Shizuku.
+         *
+         * It *is* root — [RootShell.run] routes commands through that shell — but no su
+         * binary exists for this app, so it is not [PERSISTENT_ROOT]. Labelling it
+         * persistent would claim a root install the phone does not have; labelling it
+         * SHIZUKU would say uid 2000 when the commands really run as uid 0.
+         */
+        SHELL_ROOT("shell-root", "root held by the shell — not a su install")
     }
 
     /** One attempt on the ladder, kept so the UI can show what was tried. */
@@ -82,7 +92,8 @@ object PrivilegeLadder {
         val reachedRoot: Boolean
             get() = rung == Rung.PERSISTENT_ROOT ||
                 rung == Rung.TEMP_ROOT ||
-                rung == Rung.DFROOT_ROOT
+                rung == Rung.DFROOT_ROOT ||
+                rung == Rung.SHELL_ROOT
         fun summary(): String = "${
             rung.label
         } · ${steps.count { it.ok }}/${steps.size} steps"
@@ -125,6 +136,9 @@ object PrivilegeLadder {
         // ---- rung 1: an already-live root session ----
         if (RootShell.ready()) {
             steps += Step("live root session", true, RootShell.method.ifBlank { "already held" })
+            // ready() means the grant is held, not that the multiplexed shell is up.
+            // Asking for a session here is what turns "granted" into "usable".
+            if (holdSession) RootShell.hold(context)
             return Result(rungFor(), steps, RootShell.suBinary())
         }
 
@@ -185,6 +199,10 @@ object PrivilegeLadder {
     private fun rungFor(): Rung = when {
         RootShell.temporarySession -> Rung.TEMP_ROOT
         dfrootHooked() -> Rung.DFROOT_ROOT
+        // The grant may be Shizuku's rather than the device's own su. Saying
+        // PERSISTENT_ROOT then would claim a root install the phone does not have, and
+        // the whole point of the ladder is that each rung is labelled truthfully.
+        RootShell.method.contains("Shizuku", ignoreCase = true) -> Rung.SHELL_ROOT
         else -> Rung.PERSISTENT_ROOT
     }
 

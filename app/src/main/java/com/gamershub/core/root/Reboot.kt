@@ -99,36 +99,61 @@ object Reboot {
     fun run(
         mode: Mode,
         shell: (String) -> String?,
-        prepare: () -> Unit
+        prepare: () -> Unit,
+        /**
+         * Re-establishes root after [prepare] has torn the engine down.
+         *
+         * Injected for the same reason [prepare] is: this file must not depend on the
+         * engine. Returns true when a privileged channel is usable again.
+         */
+        holdRoot: () -> Boolean = { false }
     ): String {
         val log = StringBuilder()
 
-        // 1. Leave the phone tidy first. A reboot is not a substitute for a teardown.
+        // 1. Build the command, but DO NOT send it yet.
+        val reason = mode.key
+        val cmd = when (mode) {
+            Mode.SOFT -> null            // its own sequence, sent by softRestart
+            Mode.USERSPACE -> null       // its own sequence, sent by userspaceReboot
+            else -> if (reason.isEmpty()) {
+                // `svc power reboot` is preferred over `reboot` because it goes through
+                // the power manager, which is what the platform's own UI uses.
+                "sync; svc power reboot || reboot"
+            } else {
+                "sync; svc power reboot $reason || reboot $reason"
+            }
+        }
+
+        // 2. Leave the phone tidy.
+        //
+        // The previous order prepared first and then sent, and prepare()'s last act is
+        // PrivilegeLadder.descend(): it drops the root session, the temporary provider
+        // and the Shizuku binder. So every mode was "issued" through a channel that had
+        // just been closed — "no shell to reboot with", or a reboot requested as uid
+        // 2000 that the power manager silently refuses.
         runCatching {
             prepare()
             log.append("engine stopped · ")
         }
+        // prepare() ends in PrivilegeLadder.descend(), so the grant has to be taken
+        // again *after* it, not before. This is the narrow re-acquire: just enough
+        // privilege to issue the reboot, which the reboot itself then removes.
+        val kept = runCatching { holdRoot() }.getOrDefault(false)
+        if (kept) log.append("root re-held · ")
 
-        // 2. Soft restart is its own sequence and must not be sent as a reboot reason.
-        if (mode == Mode.SOFT) {
-            return softRestart(shell, log)
+        // 3. Now send it, with a channel that is provably usable again.
+        val out = when (mode) {
+            Mode.SOFT -> return softRestart(shell, log)
+            Mode.USERSPACE -> return userspaceReboot(shell, log)
+            else -> shell(cmd!!)
         }
-
-        if (mode == Mode.USERSPACE) {
-            return userspaceReboot(shell, log)
-        }
-
-        // 3. Everything else is a platform reboot with a reason. `svc power reboot` is
-        //    preferred over `reboot` because it goes through the power manager, which is
-        //    what the platform's own UI uses (KernelSU does the same).
-        val reason = mode.key
-        val cmd = if (reason.isEmpty()) {
-            "sync; svc power reboot || reboot"
-        } else {
-            "sync; svc power reboot $reason || reboot $reason"
-        }
-        val out = shell(cmd)
-        log.append(if (out != null) "sent: $cmd" else "no shell to reboot with")
+        log.append(
+            when {
+                out != null -> "sent: $cmd"
+                kept -> "no channel answered, but root was held — reopen REBOOT after the phone restarts"
+                else -> "no shell to reboot with: root was not held, so nothing was sent"
+            }
+        )
         return log.toString()
     }
 

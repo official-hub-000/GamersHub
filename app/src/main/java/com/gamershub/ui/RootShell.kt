@@ -532,7 +532,14 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             shellScope.launch {
                                 withContext(Dispatchers.IO) {
                                     runCatching {
-                                        com.gamershub.core.Engine.start(context, wantRoot = false)
+                                        // Honour the stored root opt-in. The engine has
+                                        // always respected this flag on later starts; the
+                                        // switch that turns it on never passed it, so root
+                                        // was never attempted from here at all.
+                                        com.gamershub.core.Engine.start(
+                                            context,
+                                            wantRoot = com.gamershub.core.Engine.rootOptIn(context)
+                                        )
                                     }
                                 }
                                 engineTick++

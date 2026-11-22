@@ -917,7 +917,10 @@ private fun GfxPage(api: AxApi) {
                     }
                 } else {
                     api.work {
-                        com.gamershub.core.Engine.start(context, wantRoot = false)
+                        com.gamershub.core.Engine.start(
+                                        context,
+                                        wantRoot = com.gamershub.core.Engine.rootOptIn(context)
+                                    )
                         api.say(com.gamershub.core.Engine.statusLine(context))
                     }
                 }

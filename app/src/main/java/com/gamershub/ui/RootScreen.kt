@@ -93,7 +93,14 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
     // made in the Magisk app shows up here without a restart.
     val snap by produceState(initialValue = Snapshot()) {
         while (true) {
-            value = withContext(Dispatchers.IO) {
+            // One throwing call must not take the tab down with it. The loop used to be
+            // unguarded, so a single exception — a manager binary that vanished, a
+            // provider that refused, a selinux denial — ended the coroutine and left
+            // every control on this tab reading its initial "root required" value for
+            // the rest of the process. Now a bad refresh keeps the last good snapshot
+            // and the poll keeps running.
+            val next = withContext(Dispatchers.IO) {
+                runCatching {
                 Snapshot(
                     ready = RootShell.ready(),
                     state = RootShell.statusLabel(),
@@ -103,7 +110,9 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     suBinary = RootShell.suBinary(),
                     modules = if (RootShell.ready()) ModuleManager.list() else emptyList(),
                     zygisk = ModuleManager.zygiskEnabled(),
-                    diag = if (showDiag && RootShell.ready()) RootShell.diagnose(context) else emptyList(),
+                    // Diagnosis is most valuable when root is missing, so it is not gated
+                    // on ready(). It is still skipped until the user asks for it.
+                    diag = if (showDiag) RootShell.diagnose(context) else emptyList(),
                     grants = if (RootShell.ready()) {
                         // uid -> (package, label). Cached, because this is called once
                         // per policy row and each miss is a PackageManager walk.
@@ -130,9 +139,38 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     wirelessLabel = com.gamershub.core.adb.WirelessAdb.statusLabel(),
                     daemon = com.gamershub.core.adb.ShellDaemon.alive,
                 )
+                }.getOrElse { e ->
+                    // Keep what we knew, and say why it could not be refreshed.
+                    (value as? Snapshot)?.copy(
+                        refreshError = e.message ?: e::class.java.simpleName
+                    ) ?: Snapshot(refreshError = e.message ?: e::class.java.simpleName)
+                }
             }
+            value = next
             delay(2500)
         }
+    }
+
+    // ---- one automatic probe when the tab opens --------------------------------
+    // The tab used to sit at "Root not granted" until the user found REQUEST ROOT,
+    // which read as a broken tab on a phone that was plainly rooted: nothing had ever
+    // asked the device whether root was there.
+    //
+    // This asks, once, with RootShell.probe() — not the full ladder, because walking
+    // the ladder can install the temporary provider, and opening a tab is not consent
+    // to modify the phone. Nothing is written here; one `su -c id` either answers or it
+    // does not.
+    var autoTried by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (autoTried) return@LaunchedEffect
+        autoTried = true
+        if (RootShell.ready()) return@LaunchedEffect
+        val got = withContext(Dispatchers.IO) {
+            runCatching { RootShell.probe(context) }.getOrDefault(false)
+        }
+        if (got) com.gamershub.core.Engine.setRootOptIn(context, true)
+        // No toast on failure: the card below already says why, and REQUEST ROOT is
+        // right there for the full ladder with its per-step report.
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -224,6 +262,10 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                                 "${if (s.ok) "✓" else "✗"} ${s.name}"
                             }
                             val ok = ladder.reachedRoot
+                            // Remember the grant as an opt-in. Without this the engine
+                            // switch still starts with wantRoot=false next time, so the
+                            // user's successful climb silently expires on restart.
+                            if (ok) com.gamershub.core.Engine.setRootOptIn(context, true)
                             busy = ""
                             message = if (ok) "Root granted (${RootShell.method})" else RootShell.lastError
                             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -282,7 +324,13 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                 Text("DIAGNOSTICS", color = accent, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 if (snap.diag.isEmpty()) {
-                    Text("enable root to see live values", color = GC.TextDim, fontSize = 12.sp)
+                    // Diagnosis no longer depends on root, so an empty card means the
+                    // first poll has not landed yet — say that, not the old lie.
+                    Text(
+                        "collecting… the first pass takes a moment",
+                        color = GC.TextDim,
+                        fontSize = 12.sp
+                    )
                 } else {
                     snap.diag.forEach { line ->
                         Text(
@@ -334,6 +382,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                         com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
                     }
                     ladderStep = res.steps.joinToString(" · ") { s2 -> "${if (s2.ok) "✓" else "✗"} ${s2.name}" }
+                    if (res.reachedRoot) com.gamershub.core.Engine.setRootOptIn(context, true)
                     message = if (res.reachedRoot) "Root held · ${RootShell.method}" else "no rung answered"
                     busy = ""
                 }
@@ -380,6 +429,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                         "${if (s2.ok) "✓" else "✗"} ${s2.name}"
                     }
                     busy = ""
+                    if (ladder.reachedRoot) com.gamershub.core.Engine.setRootOptIn(context, true)
                     message = if (ladder.reachedRoot) "Root adopted via DFRoot"
                               else "DFRoot has not granted su yet — finish the run first"
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -557,7 +607,16 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RomKit.R10)
-                        .clickable(enabled = snap.ready) {
+                        // Enabled in every state, on purpose. A disabled row swallows the
+                        // tap and says nothing, which is indistinguishable from a broken
+                        // button; this way a tap with no root explains itself.
+                        .clickable {
+                            if (!snap.ready) {
+                                message = "Needs root — press REQUEST ROOT above, then retry " +
+                                    "$title."
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                return@clickable
+                            }
                             scope.launch {
                                 val r = withContext(Dispatchers.IO) {
                                     when (title) {
@@ -587,6 +646,17 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
         if (message.isNotBlank()) {
             Spacer(Modifier.height(14.dp))
             Text(message, color = GC.TextDim, fontSize = 12.sp)
+        }
+        // A refresh that threw is the one failure a user cannot infer from the screen:
+        // everything else on this tab is still showing its last good value.
+        if (snap.refreshError.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Last refresh failed: ${snap.refreshError} — values below may be stale. " +
+                    "The poll keeps retrying every 2.5 s.",
+                color = Color(0xFFE0A33A),
+                fontSize = 11.sp
+            )
         }
 
         Spacer(Modifier.height(110.dp))
@@ -662,6 +732,15 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                                             },
                                             prepare = {
                                                 runCatching { com.gamershub.core.Engine.stopEverything(context) }
+                                            },
+                                            // Take root back after the teardown dropped it,
+                                            // or the reboot below has nothing to send with.
+                                            holdRoot = {
+                                                runCatching {
+                                                    RootShell.acquire(context) &&
+                                                        (com.gamershub.core.Channel.kind() !=
+                                                            com.gamershub.core.Channel.Kind.NONE)
+                                                }.getOrDefault(false)
                                             }
                                         )
                                     }
@@ -896,6 +975,8 @@ private data class Snapshot(
     val wireless: Boolean = false,
     val wirelessLabel: String = "",
     val daemon: Boolean = false,
+    /** Set when the last refresh threw, so the tab says why it may be stale. */
+    val refreshError: String = "",
 )
 
 @Composable
@@ -1036,6 +1117,9 @@ private fun LadderCard(
     val persistent = rung == com.gamershub.core.root.PrivilegeLadder.Rung.PERSISTENT_ROOT
     val shellOnly = rung == com.gamershub.core.root.PrivilegeLadder.Rung.SHIZUKU
     val viaDf = rung == com.gamershub.core.root.PrivilegeLadder.Rung.DFROOT_ROOT
+    // uid 0 without a su install: real root, held by the shell. It has to read as root
+    // here or the card says "No root" while every privileged button below works.
+    val shellRoot = rung == com.gamershub.core.root.PrivilegeLadder.Rung.SHELL_ROOT
 
     Card(borderColor = if (rootReady) accent.copy(alpha = 0.35f) else RomKit.Stroke) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1045,6 +1129,7 @@ private fun LadderCard(
                         persistent -> "Root held"
                         tempLive -> "Temporary root held"
                         viaDf -> "Root held · DFRoot"
+                        shellRoot -> "Root held · shell grant"
                         shellOnly -> "Shizuku only"
                         else -> "No root"
                     },
@@ -1062,6 +1147,7 @@ private fun LadderCard(
                     .background(
                         when {
                             persistent -> accent
+                            shellRoot -> accent
                             tempLive -> Color(0xFFE0A33A)
                             shellOnly -> Color(0xFF59A0E0)
                             else -> GC.TextDim.copy(alpha = 0.5f)

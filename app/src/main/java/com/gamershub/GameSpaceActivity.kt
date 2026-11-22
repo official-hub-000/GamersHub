@@ -1791,7 +1791,10 @@ private fun ControlCenter(
                             // Off the UI thread: this reconnects the wireless shell.
                             scope.launch {
                                 withContext(Dispatchers.IO) {
-                                    com.gamershub.core.Engine.start(context, wantRoot = false)
+                                    com.gamershub.core.Engine.start(
+                                        context,
+                                        wantRoot = com.gamershub.core.Engine.rootOptIn(context)
+                                    )
                                 }
                                 memNote = com.gamershub.core.Engine.statusLine(context)
                                 engineTick++

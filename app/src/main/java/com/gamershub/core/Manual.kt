@@ -608,10 +608,14 @@ object Manual {
             summary = "Everything privileged in one screen: root state, modules, superuser policy " +
                 "and diagnostics.",
             steps = listOf(
-                "Open the ROOT tab; the top card says whether root is active.",
+                "Open the ROOT tab; it tries the device's own su once by itself, then the top card says whether root is active.",
                 "Use the section list: REBOOT, PRIVILEGE, SHELL, TEMPORARY ROOT, SESSION ROOT, SUPERUSER, MODULE STORE, FLASH, INSTALLED MODULES, SYSTEM DEPTH.",
-                "Values refresh every few seconds, so a change made in Magisk appears without a restart."
+                "Values refresh every few seconds, so a change made in Magisk appears without a restart.",
+                "If a control still says it needs root, press REQUEST ROOT — it reports each rung it tried and why it failed.",
+                "DIAGNOSE works without root; it is the one place that lists what the device looks like when root is missing."
             ),
+            note = "A granted root stays granted: the engine remembers your choice, so signing out and back in " +
+                "does not silently lose it.",
             tab = "ROOT"
         ),
         HelpTopic(

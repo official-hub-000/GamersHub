@@ -127,7 +127,17 @@ object RootShell {
         }
     }
 
-    fun ready(): Boolean = state == State.READY && session?.alive == true
+    /**
+     * True when this app holds uid 0 **and can run a command right now**.
+     *
+     * Deliberately not `session?.alive`: the persistent multiplexed shell is an
+     * optimisation, not the privilege. When [Session.start] fails — every device where
+     * `su` is a one-shot helper that refuses to sit on a pipe, which is most Magisk and
+     * KernelSU installs — root is still held and [run] already falls back to
+     * `su -c`. Requiring a live session made every root button on the ROOT tab read
+     * false and stay disabled while the device was perfectly rooted.
+     */
+    fun ready(): Boolean = state == State.READY
 
     fun statusLabel(): String = when (state) {
         State.READY -> "Root ready · $method"
@@ -178,6 +188,47 @@ object RootShell {
      * Obtains root. This may show the Magisk/SuperSU prompt, so call it from a
      * background thread and only when the user asks for it.
      */
+    /**
+     * Checks whether root is already available, **without changing the device**.
+     *
+     * This is the probe the ROOT tab runs when it opens. [acquire] is deliberately not
+     * used for that: it falls through to [provisionTemporary], which writes a binary to
+     * the device, and opening a tab is not consent to modify the phone. Here nothing is
+     * written — one `su -c id` either answers uid 0 or it does not — but the answer is
+     * enough to light up every control on the tab.
+     *
+     * A superuser prompt may still appear, which is unavoidable: that is the only way to
+     * ask a device whether root has been granted.
+     */
+    fun probe(context: Context): Boolean {
+        if (state == State.READY) return true
+        val binary = suBinary()
+        val candidates = buildList {
+            add("su")
+            binary?.let { if (it != "su") add(it) }
+        }
+        for (bin in candidates) {
+            val out = quick("$bin -c id", timeoutMs = 20_000) ?: continue
+            if (out.contains("uid=0")) {
+                state = State.READY
+                method = if (bin == "su") "su" else "su ($bin)"
+                binPath = binary
+                lastError = ""
+                startSession(context)
+                record("probe: $bin -c id → uid=0")
+                return true
+            }
+            if (out.contains("denied", true) || out.contains("not allowed", true)) {
+                state = State.DENIED
+                lastError = "Superuser request denied. Open your root manager and allow GamersHub."
+                record("probe: $bin → denied")
+                return false
+            }
+        }
+        record("probe: no su answered")
+        return false
+    }
+
     fun acquire(context: Context): Boolean {
         if (ready()) return true
 
@@ -249,6 +300,7 @@ object RootShell {
     fun diagnose(context: Context): List<String> {
         val lines = mutableListOf<String>()
         lines += "state        ${state.name}"
+        lines += "ready        ${if (ready()) "yes — privileged commands can run" else "no — root work is refused"}"
         lines += "su on PATH   ${runCatching {
             ProcessBuilder("sh", "-c", "command -v su").start()
                 .inputStream.bufferedReader().readText().trim().ifBlank { "not found" }
@@ -265,6 +317,23 @@ object RootShell {
         }}"
         lines += "modules      ${ModuleManager.list().size} installed"
         lines += "manager      ${ModuleManager.managerName()}"
+        // Everything above is what we can see WITH privilege. When there is none, the
+        // interesting facts are the ones about *why* — and that is precisely the case a
+        // user presses DIAGNOSE in, so none of this may be gated behind ready().
+        if (state != State.READY) {
+            lines += "binary path  ${binPath ?: "not resolved"}"
+            lines += "root manager ${runCatching { com.gamershub.core.root.SuManager.backendName() }
+                .getOrDefault("unknown")}"
+            lines += "su can run   ${runCatching {
+                quick("su -c id", timeoutMs = 6_000)?.lines()?.firstOrNull()?.take(60) ?: "no answer"
+            }.getOrDefault("probe failed")}"
+            lines += "Shizuku      ${runCatching {
+                if (com.gamershub.core.shizuku.Shell.available()) "available" else "not available"
+            }.getOrDefault("probe failed")}"
+            lines += "daemon       ${if (com.gamershub.core.adb.ShellDaemon.alive) "alive" else "not running"}"
+            lines += "wireless     ${runCatching { com.gamershub.core.adb.WirelessAdb.statusLabel() }
+                .getOrDefault("unknown")}"
+        }
         if (lastError.isNotBlank()) lines += "last error   $lastError"
         return lines
     }
@@ -287,6 +356,14 @@ object RootShell {
      */
     fun run(command: String, timeoutMs: Long = 8_000): String? {
         if (state != State.READY) return null
+        // A previous start may have failed before the manager settled. Retry here so a
+        // single unlucky moment does not force every later command down the slower
+        // one-shot path for the rest of the session.
+        if (session?.alive != true) {
+            com.gamershub.GamersHubApp.instance?.let { ctx ->
+                runCatching { retrySession(ctx) }
+            }
+        }
         val s = session
         if (s != null && s.alive) {
             val out = s.exec(command, timeoutMs)
@@ -295,6 +372,18 @@ object RootShell {
                 return out
             }
         }
+        // The grant may live in another process rather than in ours: adoptShizukuRoot()
+        // sets READY precisely because `su` answered through the Shizuku shell and not
+        // from the app. Route those through that shell instead of failing every command
+        // just because we have no su binary of our own.
+        if (method.contains("Shizuku", ignoreCase = true) || suBinary() == null) {
+            runCatching { com.gamershub.core.shizuku.Shell.exec(command) }
+                ?.let { viaShell ->
+                    record("$ " + command.take(70) + " → root (shizuku shell)")
+                    return viaShell
+                }
+        }
+
         // Session died (device revoked root, process recycled): retry once one-shot.
         val out = quick("su -c \"${command.replace("\"", "\\\"")}\"", timeoutMs)
         if (out != null) {
@@ -362,6 +451,23 @@ object RootShell {
     }
 
     // ------------------------------------------------------------------ session
+
+    /** Last time a session start was attempted, so a failing device is not hammered. */
+    @Volatile
+    private var lastSessionAttempt = 0L
+
+    /**
+     * One retry of the persistent shell, at most once every 30 s.
+     *
+     * Called from [run] on the command path, so it must stay cheap when it does nothing:
+     * the common case is a device where the persistent shell works and this never runs.
+     */
+    private fun retrySession(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastSessionAttempt < 30_000) return
+        lastSessionAttempt = now
+        startSession(context)
+    }
 
     private fun startSession(context: Context) {
         if (session?.alive == true) return

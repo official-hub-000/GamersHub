@@ -224,7 +224,10 @@ fun ToolsScreen(
                 } else {
                     scope.launch {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            com.gamershub.core.Engine.start(context, wantRoot = false)
+                            com.gamershub.core.Engine.start(
+                                        context,
+                                        wantRoot = com.gamershub.core.Engine.rootOptIn(context)
+                                    )
                         }
                         Toast.makeText(context, com.gamershub.core.Engine.statusLine(context), Toast.LENGTH_SHORT).show()
                     }
