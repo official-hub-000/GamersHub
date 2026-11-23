@@ -66,6 +66,18 @@ check("1000000" in wf,
 check("sha256sum" in wf,
       "the fetched ksud must be hashed and recorded, so the shipped binary can be named")
 
+# ---- Both workflows must fetch it, and the release must prove it shipped ---------
+rel = read(".github/workflows/release.yml")
+check("tiann/KernelSU" in rel,
+      "the RELEASE workflow must fetch ksud too: CI passing without it is correct "
+      "behaviour (the app degrades), so a release that skips the fetch ships an APK with "
+      "no backend and silently reinstates the external manager requirement")
+check("libksud.so" in rel,
+      "the release workflow must assert libksud.so is inside the built APK; a fetch step "
+      "alone does not prove it was packaged")
+check('KSU_VERSION="v' in rel,
+      "the release workflow must pin the ksud version as CI does")
+
 # ---- DFRoot, the other GPL component --------------------------------------------
 check((ROOT / "licenses/DFRoot-LICENSE.txt").exists(),
       "licenses/DFRoot-LICENSE.txt is missing")
