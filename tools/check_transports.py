@@ -431,35 +431,43 @@ check(
     "the wireless sheet must display WirelessAdb.diagnostics(context)",
 )
 
-# 22. The marker generator must actually write the path, and the reader must find it.
-#     The first version chained `cmake -E echo ... > f` and `>>` in add_custom_command,
-#     which runs without a shell — the redirects were literal arguments, the marker
-#     shipped empty, layoutMatches() was false and DFRoot refused to run on every device.
-pathmarker = read(JNI / "pathmarker.c")
+# 22. The marker must carry the path, and the build must not rely on a shell.
+#     Three separate attempts shipped a marker with no path in it, and an empty marker makes
+#     layoutMatches() false, which makes DFRoot refuse to run on every device. All three had
+#     the same root cause: assuming a redirect or a foreign binary could write the file.
 check(
-    "fopen(out" in pathmarker and "fwrite" in pathmarker,
-    "pathmarker must write the marker with fopen/fwrite; a chain of cmake -E commands "
-    "with shell redirects silently produced an empty marker",
-)
-check(
-    "'%s/bootstrap\\n'" in pathmarker or "%s/bootstrap" in pathmarker,
-    "pathmarker must write <payload-dir>/bootstrap",
-)
-check(
-    ">>" not in cmake and "-E echo" not in cmake,
-    "CMakeLists must not build the marker with shell redirects: add_custom_command does "
-    "not run through a shell, so the redirects become literal arguments and the marker is "
+    'file(WRITE "${MARKER_OUT}" "${PAYLOAD_DIR}/bootstrap' in cmake,
+    "the layout marker must be written whole by file(WRITE): add_custom_command does not "
+    "run through a shell, so '>' and '>>' become literal arguments and the marker ends up "
     "empty while the build still succeeds",
 )
 check(
-    "pathmarker_tool" in cmake,
-    "CMakeLists must compile the marker generator and run it",
+    "marker-head.bin" not in cmake,
+    "the marker must not be assembled from parts — every attempt at appending without a "
+    "shell silently produced an empty file",
 )
-# The reader must scan the binary for the path, not read the file as text.
+check(
+    "pathmarker_tool" not in cmake,
+    "the marker must not be written by a cross-compiled target: an arm64 binary cannot run "
+    "on the x86 build host",
+)
+# strip #-comments first: the explanation above this rule quotes the broken commands.
+cmake_code = "\n".join(
+    ln for ln in cmake.splitlines() if not ln.lstrip().startswith("#")
+)
+check(
+    "-E cat" not in cmake_code,
+    "cmake -E cat cannot append; combining the marker from parts is what shipped it empty",
+)
+check(
+    "libdfroot-path.so" in cmake,
+    "the marker file must still be installed into the library output directory",
+)
+# The reader must scan for the absolute path, not read the file as a whole.
 check(
     "/data/[A-Za-z0-9_./-]+/bootstrap" in dfpaths,
-    "DfPaths.compiledBootstrapPath must scan the marker for an absolute path; readText() "
-    "on a binary returns mojibake with the path buried inside it",
+    "DfPaths.compiledBootstrapPath must scan the marker for an absolute path; comparing "
+    "the whole trimmed file cannot match once the marker carries anything else",
 )
 
 # ================================== report ===================================
