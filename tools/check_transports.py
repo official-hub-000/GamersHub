@@ -470,6 +470,67 @@ check(
     "the whole trimmed file cannot match once the marker carries anything else",
 )
 
+# 23. The KMI must come from the kernel, not the OS version.
+#     A KMI is a kernel ABI brand, not an Android version. Taking the Android number from
+#     Build.VERSION.RELEASE computed android16-5.15 for a device whose real KMI is
+#     android13-5.15, reported "kernel not supported", and refused to run DFRoot on a
+#     device that is in the supported list.
+dfroot = strip_comments(read(SRC / "core/root/DfRoot.kt"))
+check(
+    'Regex("-android' in dfroot,
+    "DfRoot.deviceKmi must read the GKI brand from the kernel release string; an OS "
+    "version is not a KMI and vendors ship new Android on old GKI kernels",
+)
+# The brand must be the PRIMARY source. Two independent statements: the brand regex has
+# to exist at all, and the OS version may only appear after it as a fallback. Checking that
+# the old line is absent is not enough — deleting the brand entirely also removes it.
+_body = dfroot.split("fun deviceKmi")[1].split("fun kmiIsBranded")[0]
+# Strip comment lines: the doc comment above the function explains the format with real
+# examples like "-android13-", which a naive substring check happily matches.
+_body_code = "\n".join(
+    ln for ln in _body.splitlines() if not ln.lstrip().startswith(("*", "//"))
+)
+check(
+    'Regex("-android' in dfroot,
+    "deviceKmi must read the GKI brand from the kernel release string: a KMI is a kernel "
+    "ABI brand, not an OS version (this computed android16-5.15 on a real android13-5.15 "
+    "device and refused to run DFRoot on a supported kernel)",
+)
+check(
+    "Build.VERSION.RELEASE" not in _body or _body.find("branded ?:") < _body.find("Build.VERSION.RELEASE"),
+    "deviceKmi must not use the OS version as its primary source, only as a fallback",
+)
+
+# 24. Module sources must point at branches that exist.
+modstore = read(SRC / "core/root/ModuleStore.kt")
+check(
+    "ZG-R/master/json/modules.json" in modstore,
+    "the ZG-R catalog must use the repository's default branch (master); main 404s",
+)
+check(
+    "mmrl-repo/master/json/modules.json" in modstore,
+    "the mmrl-repo catalog must use the repository's default branch (master); main 404s",
+)
+check(
+    "take(180)" not in read(SRC / "ui/RootScreen.kt"),
+    "source errors must not be truncated at a fixed length — it split a URL exactly where "
+    "the branch was named",
+)
+
+# 25. No duplicated search row, no placeholder leaking into a sentence.
+lobby = read(SRC / "ui/LobbyScreen.kt")
+check(
+    lobby.count("Search anything — feature, setting or help") == 1,
+    "the Lobby search row is duplicated; two identical dead-looking fields appear on top "
+    "of each other",
+)
+check(
+    'Manager.UNKNOWN -> "root manager (unrecognised)"'
+    not in read(SRC / "core/root/ModuleManager.kt"),
+    "managerName must not return a parenthesis placeholder: it is interpolated into "
+    "user-facing sentences",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

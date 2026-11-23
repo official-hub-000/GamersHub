@@ -91,7 +91,12 @@ object ModuleManager {
         Manager.KERNELSU -> "KernelSU"
         Manager.APATCH -> "APatch"
         Manager.NONE -> "no root manager"
-        Manager.UNKNOWN -> "root manager (unrecognised)"
+        // Only reached when a manager answers on the shell but is not one we recognise.
+        // It must not read like a device state: the copy around it puts this straight
+        // into a sentence ("flashed with X's own installer"), and the old wording
+        // produced "root manager (unrecognised)'s own installer" on a device that has no
+        // manager at all.
+        Manager.UNKNOWN -> "an unrecognised manager"
     }
 
     fun managerVersion(): String {

@@ -82,27 +82,53 @@ object DfRoot {
         val notes: List<String>
     )
 
-    /** The device's KMI, computed the same way DFRoot's `select_ko_image` does. */
+    /**
+     * The device's KMI.
+     *
+     * A KMI is a *kernel* interface contract, not an OS version. GKI kernels are branded
+     * with it in their release string — `5.15.123-android13-8-00002-g1234abcd` is
+     * android13-5.15 — and that brand is what DFRoot's module must match, because the
+     * module is built against that ABI and that ABI alone.
+     *
+     * This used to take the Android number from `Build.VERSION.RELEASE`, which is the OS
+     * the user is running, not the ABI their kernel was compiled for. Those are routinely
+     * different: vendors ship Android 16 on a 5.15 kernel, which is a GKI kernel branded
+     * android13. The old code computed `android16-5.15` for such a device, reported
+     * "kernel not supported", and refused to run — while the device's real KMI,
+     * android13-5.15, is in the supported list. The refusal was the bug.
+     */
     fun deviceKmi(): Kmi {
-        val rel = Build.VERSION.RELEASE ?: "0"
-        val android = rel.substringBefore('.').toIntOrNull() ?: Build.VERSION.SDK_INT - 23
-        val (major, minor) = kernelVersion()
+        val (major, minor, branded) = kernelInfo()
+        // The kernel's own brand wins. Only if the release string carries none — a vendor
+        // kernel without GKI branding — fall back to the OS version, and say so in the
+        // status notes rather than presenting it as fact.
+        val android = branded ?: (Build.VERSION.RELEASE ?: "0")
+            .substringBefore('.').toIntOrNull()
+            ?: (Build.VERSION.SDK_INT - 23)
         return Kmi(android, major, minor)
     }
 
-    /** `uname -r` → (major, minor). Falls back to 0.0 when it cannot be read. */
-    private fun kernelVersion(): Pair<Int, Int> {
+    /** True when the kernel release string named its own KMI, rather than us guessing. */
+    fun kmiIsBranded(): Boolean = kernelInfo().third != null
+
+    /**
+     * `uname -r` → (major, minor, android brand).
+     *
+     * `5.15.123-android13-8-00002-g1234abcd` → (5, 15, 13). The brand is the digits after
+     * `-android`, which is how GKI names the ABI. Null for it when absent.
+     */
+    private fun kernelInfo(): Triple<Int, Int, Int?> {
         val raw = runCatching {
             val p = ProcessBuilder("uname", "-r").redirectErrorStream(true).start()
             val out = p.inputStream.bufferedReader().readText().trim()
             p.waitFor()
             out
         }.getOrDefault("")
-        // 5.15.123-android13-8-00002-g1234abcd
-        val parts = raw.split('-').firstOrNull()?.split('.') ?: return 0 to 0
-        val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
-        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        return major to minor
+        val parts = raw.split('-').firstOrNull()?.split('.')
+        val major = parts?.getOrNull(0)?.toIntOrNull() ?: 0
+        val minor = parts?.getOrNull(1)?.toIntOrNull() ?: 0
+        val brand = Regex("-android(\d+)").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return Triple(major, minor, brand)
     }
 
     fun installed(context: Context): Boolean = runCatching {

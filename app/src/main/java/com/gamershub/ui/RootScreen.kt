@@ -487,10 +487,19 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
 
         SectionHead("FLASH FROM STORAGE")
         Card {
+            // When there is no manager the sentence must not pretend there is one.
+            // "flashed with no root manager's own installer" is not English, and the
+            // device this was reported from has no manager installed at all.
             Text(
-                "Pick a module .zip you already downloaded. It is flashed with " +
-                    "${snap.manager}'s own installer, so the result is identical to " +
-                    "flashing it from the manager.",
+                if (snap.manager == "no root manager" || snap.manager.isBlank()) {
+                    "Pick a module .zip you already downloaded. Flashing needs a root " +
+                        "manager to run the installer — there is none installed on this " +
+                        "device yet, so this stays disabled until you have one."
+                } else {
+                    "Pick a module .zip you already downloaded. It is flashed with " +
+                        "${snap.manager}'s own installer, so the result is identical to " +
+                        "flashing it from the manager."
+                },
                 color = GC.TextDim,
                 fontSize = 12.sp
             )
@@ -884,6 +893,19 @@ private fun RebootPicker(
                 }
 
                 Spacer(Modifier.height(6.dp))
+                // If every row above is disabled, say why. A list of greyed options with
+                // no reason is a dead end: the user cannot tell whether the mode is
+                // emulated, unsupported, or simply blocked by a missing shell.
+                if (!supported) {
+                    Text(
+                        "Every mode here needs one of: root, a paired wireless-debugging " +
+                            "shell, or a live Shizuku binder. None of those is available, " +
+                            "which is why the rows are disabled — not because these modes " +
+                            "are unsupported on your device.",
+                        color = Color(0xFFE0A33A), fontSize = 10.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 Text(
                     "Temporary root and the shell daemon both end at a full reboot. " +
                         "Soft restart and userspace reboot deliberately keep the kernel running.",
@@ -1850,11 +1872,22 @@ private fun StoreSection(
         AnimatedVisibility(visible = problems.isNotEmpty() && queried) {
             Column {
                 Spacer(Modifier.height(10.dp))
+                // One line per source, never truncated mid-URL. The previous version cut
+                // the whole list at 180 characters, which split a raw.githubusercontent
+                // link in half — exactly the part that said which branch 404'd.
                 Text(
-                    "Some sources did not answer: " + problems.joinToString("; ").take(180),
+                    "Some sources did not answer:",
                     color = Color(0xFFE2A03A),
                     fontSize = 10.sp
                 )
+                problems.forEach { p ->
+                    Text(
+                        "· $p",
+                        color = Color(0xFFE2A03A),
+                        fontSize = 10.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
             }
         }
     }

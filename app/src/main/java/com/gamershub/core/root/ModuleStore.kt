@@ -90,8 +90,8 @@ object ModuleStore {
 
     /** MMRL-format community repositories, each a single modules.json. */
     private val MMRL_REPOS = listOf(
-        "https://raw.githubusercontent.com/ZGUATION-PROJECTS/ZG-R/main/json/modules.json",
-        "https://raw.githubusercontent.com/Yukari0201/mmrl-repo/main/json/modules.json",
+        "https://raw.githubusercontent.com/ZGUATION-PROJECTS/ZG-R/master/json/modules.json",
+        "https://raw.githubusercontent.com/Yukari0201/mmrl-repo/master/json/modules.json",
     )
 
     /**
