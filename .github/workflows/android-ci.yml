@@ -156,6 +156,22 @@ jobs:
           sha256sum app/src/main/jniLibs/arm64-v8a/libksud.so \
             | tee /tmp/ksud.sha256
           echo "bundled ksud $KSU_VERSION: $(cat /tmp/ksud.sha256)"
+          # Prove it is a real aarch64 executable and not an error page that happened to
+          # be named ksud. A truncated or HTML download would otherwise sail through and
+          # only fail on the device, at the moment the user presses RUN DFRROOT.
+          SIZE=$(stat -c%s app/src/main/jniLibs/arm64-v8a/libksud.so)
+          echo "ksud size: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "::error::ksud is only $SIZE bytes — that is not the real backend"
+            exit 1
+          fi
+          # ELF magic, aarch64 machine type (0xB7).
+          MAGIC=$(head -c 4 app/src/main/jniLibs/arm64-v8a/libksud.so | od -An -c | tr -d ' ')
+          echo "ksud magic: $MAGIC"
+          case "$MAGIC" in
+            *177ELF*) ;;
+            *) echo "::error::ksud is not an ELF binary"; exit 1 ;;
+          esac
         env:
           GH_TOKEN: ${{ github.token }}
 

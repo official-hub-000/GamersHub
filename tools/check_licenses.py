@@ -58,6 +58,11 @@ check("tiann/KernelSU" in wf,
 check('KSU_VERSION="v' in wf,
       "the ksud version must be pinned to an exact tag; a floating ref makes the shipped "
       "binary different on every build")
+check("177ELF" in wf,
+      "the fetch step must verify the downloaded ksud is a real ELF binary: a truncated "
+      "or error-page download would otherwise only fail on the device")
+check("1000000" in wf,
+      "the fetch step must reject an implausibly small ksud")
 check("sha256sum" in wf,
       "the fetched ksud must be hashed and recorded, so the shipped binary can be named")
 
