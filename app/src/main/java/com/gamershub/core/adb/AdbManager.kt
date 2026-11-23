@@ -5,6 +5,7 @@ import android.os.Build
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
+import io.github.muntashirakon.adb.SslUtils
 import java.io.File
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -105,7 +106,7 @@ class AdbConnectionManager private constructor(context: Context) : AbsAdbConnect
         // The TLS context caches the key it was built with. Without this, pairing after a
         // reset presents the certificate from *before* the reset while connect presents
         // the new one, so the code is accepted and the shell still refuses.
-        runCatching { io.github.muntashirakon.adb.SslUtils.reset() }
+        runCatching { SslUtils.reset() }
     }
 
     companion object {
