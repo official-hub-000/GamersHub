@@ -70,9 +70,15 @@ static int __nocfi __init dfroot_init(void)
      * and a second copy is how the two drifted apart and produced a run that loaded the
      * module, went permissive, and exec'd nothing. The app stages into the same dir and
      * refuses to run if the payload's declared path disagrees. */
+    /* --bridge-seconds is the lifetime of the uid-0 socket session bootstrap publishes
+     * after ksud has run. It is passed explicitly rather than defaulted because the two
+     * sides disagreeing is invisible: the run would look successful and then every
+     * privileged command would fail minutes later with no cause on screen. 900 s is long
+     * enough to work through the tab and bounded so an abandoned run does not leave a
+     * root shell sitting on the device. */
     snprintf(cmd, sizeof(cmd),
              "touch /dev/dfm0; echo -n 'u:r:init:s0' > /proc/self/attr/exec; "
-             "exec %s --payload-dir %s --prefs %s/dfroot-native.xml",
+             "exec %s --payload-dir %s --prefs %s/dfroot-native.xml --bridge-seconds 900",
              bootstrap, PAYLOAD_DIR, PAYLOAD_DIR);
 
     // Symbol finder

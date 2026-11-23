@@ -1,11 +1,16 @@
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define BLKROSET   0x125d
@@ -20,6 +25,11 @@
 
 static const char *payload_dir = DEFAULT_PAYLOAD_DIR;
 static const char *prefs_path  = DEFAULT_PREFS;
+
+/* How long the uid-0 bridge stays available after the exploit runs. Long enough that a
+ * user who presses RUN DFRROOT and then walks through the tab is not racing a timer, and
+ * bounded so an abandoned run does not leave a root shell on the device indefinitely. */
+static int bridge_timeout = 900;
 
 static void build_paths(char *ksud_out, size_t ksud_size)
 {
@@ -205,6 +215,170 @@ static int disable_modules(void)
     return 0;
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The uid-0 session bridge
+ * ---------------------------------------------------------------------------
+ *
+ * Why this exists, and why it is not `su`.
+ *
+ * This process runs as uid 0 inside the `u:r:init:s0` domain. That is a real root
+ * credential, but credentials are not a service: when bootstrap exits, root is gone and
+ * the app is back to app_uid. The app used to wait 15 s for a `su` daemon to appear and
+ * then report `the su daemon did not answer`. That daemon can never appear on this
+ * kernel, and the reason is worth writing down, because three separate things are all
+ * true at once and none of them is fixable from inside the app:
+ *
+ *  1. KernelSU does not ship a `su` file. `kernel/feature/sucompat.c` defines
+ *     `SU_PATH "/system/bin/su"` and intercepts execve for exactly that path, replacing
+ *     it with `/data/adb/ksud`. There is nothing on disk to execute or to `test -x`.
+ *  2. That interception is gated on `ksu_is_allow_uid_for_current()`. Our uid is not in
+ *     the allowlist, so the syscall is passed through untouched and the shell gets
+ *     ENOENT — the literal `su: inaccessible or not found` in DIAGNOSTICS.
+ *  3. The only uid allowed without an allowlist entry is the manager, matched by
+ *     `strncmp(package, KSU_PACKAGE_NAME)` where KSU_PACKAGE_NAME is compiled into the
+ *     `.ko` from `kernel/Kbuild` as `me.weishu.kernelsu`. It is not our package and no
+ *     `ksud` flag can change it.
+ *
+ * So there is no configuration of the bundled backend that yields a persistent su daemon
+ * on this device. What there *is* is this process: uid 0, alive, and willing to run
+ * commands. The bridge is that: a couple of pipes and a fork per request, which is the
+ * honest maximum for a temporary root and is exactly what the UI advertises when it says
+ * "temporary — uid 0 for this session".
+ *
+ * Protocol, deliberately tiny so it cannot be the next thing that silently breaks:
+ *
+ *   connect to $payload_dir/bridge.sock
+ *   write  "<command>\n"
+ *   read   until the line "__GH_ROOT_DONE__\n"   (output is the command's output)
+ *
+ * One connection may carry many commands. The socket is created in the app's own
+ * device-protected directory and chowned to that directory's owner, so only the app can
+ * connect: SELinux is permissive at this point, and a permissive kernel does not protect
+ * a world-writable socket.
+ */
+
+#define BRIDGE_DONE "__GH_ROOT_DONE__\n"
+
+static int bridge_listen(const char *dir, char *path, size_t path_size)
+{
+    snprintf(path, path_size, "%s/bridge.sock", dir);
+    unlink(path);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    /* sun_path is 108 bytes on Linux. Refuse rather than silently truncate: a truncated
+     * path binds to the wrong place and every later connect looks like "no root". */
+    if (strlen(path) >= sizeof(addr.sun_path)) {
+        close(fd);
+        return -1;
+    }
+    memcpy(addr.sun_path, path, strlen(path) + 1);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    /* Hand ownership to the app. The payload dir is created by the app, so its owner is
+     * the app's uid; anything else (root-owned, or world-writable) is either unusable or
+     * an open door. */
+    struct stat st;
+    if (stat(dir, &st) == 0) {
+        if (chown(path, st.st_uid, st.st_gid) != 0)
+            chmod(path, 0600);
+    }
+    chmod(path, 0600);
+
+    if (listen(fd, 4) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+/* Runs one command as uid 0 and writes its output to `out`. */
+static void bridge_run(const char *command, FILE *out)
+{
+    FILE *p = popen(command, "r");
+    if (!p) {
+        fprintf(out, "bridge: popen failed: %s\n", strerror(errno));
+        return;
+    }
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), p)) > 0)
+        fwrite(buf, 1, n, out);
+    int status = pclose(p);
+    int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    /* Only report a failure. Successful output has to stay byte-clean: callers parse it
+     * (`id`, `magisk -V`, module lists), and a decoration line on every reply is exactly
+     * how a parser starts returning nonsense. */
+    if (code != 0)
+        fprintf(out, "\n[exit %d]\n", code);
+}
+
+/* Serves one connection until it closes. Returns when the client hangs up. */
+static void bridge_serve(int client)
+{
+    FILE *in = fdopen(dup(client), "r");
+    FILE *out = fdopen(client, "w");
+    if (!in || !out) {
+        if (in) fclose(in);
+        if (out) fclose(out);
+        else close(client);
+        return;
+    }
+    setvbuf(out, NULL, _IONBF, 0);
+
+    char line[4096];
+    while (fgets(line, sizeof(line), in)) {
+        size_t len = strlen(line);
+        while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+        if (len == 0)
+            continue;
+        if (!strcmp(line, "quit"))
+            break;
+        bridge_run(line, out);
+        /* The app waits for this exact line rather than for EOF, so a command that
+         * prints a lot of output cannot be mistaken for the end of the reply. It must
+         * also start at column 0 and carry no NUL: the client compares the line, and a
+         * stray byte turns every reply into a timeout. */
+        fputs(BRIDGE_DONE, out);
+        fflush(out);
+    }
+
+    fclose(in);
+    fclose(out);
+}
+
+/* Accepts connections until the deadline passes. */
+static void bridge_loop(int listen_fd, int timeout_s)
+{
+    time_t deadline = time(NULL) + timeout_s;
+    while (time(NULL) < deadline) {
+        struct timeval tv = { 5, 0 };
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(listen_fd, &rfds);
+        int r = select(listen_fd + 1, &rfds, NULL, NULL, &tv);
+        if (r <= 0)
+            continue;
+        int client = accept(listen_fd, NULL, NULL);
+        if (client < 0)
+            continue;
+        touch("/dev/dfmb0");
+        bridge_serve(client);
+    }
+    close(listen_fd);
+}
+
 int main(int argc, char **argv)
 {
     for (int i = 1; i + 1 < argc; i++) {
@@ -212,6 +386,8 @@ int main(int argc, char **argv)
             payload_dir = argv[++i];
         else if (strcmp(argv[i], "--prefs") == 0)
             prefs_path = argv[++i];
+        else if (strcmp(argv[i], "--bridge-seconds") == 0)
+            bridge_timeout = atoi(argv[++i]);
     }
 
     touch("/dev/dfm1");
@@ -250,6 +426,19 @@ int main(int argc, char **argv)
     } else {
         touch("/dev/dfme2");
     }
-        
+
+    /* `ksud` has run (or failed). Either way this process still holds uid 0, and that
+     * credential is the only root this kernel will give us — see the long comment above
+     * bridge_listen(). Publish it, then serve until the app is done or the cap expires. */
+    char sock[600];
+    int lfd = bridge_listen(payload_dir, sock, sizeof(sock));
+    if (lfd >= 0) {
+        touch("/dev/dfmb1");
+        bridge_loop(lfd, bridge_timeout);
+        unlink(sock);
+    } else {
+        touch("/dev/dfmbe0");
+    }
+
     return 0;
 }

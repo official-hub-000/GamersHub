@@ -167,15 +167,21 @@ object PrivilegeLadder {
             }
         }
 
-        // ---- rung 4: DFRoot bootstrapped this boot ----
-        // If DFRoot already ran, its module started the manager's su daemon, but the
-        // app may still have no grant. Report that honestly and let the user open it.
-        if (dfrootHooked()) {
+        // ---- rung 4: the uid-0 session DFRoot publishes ----
+        // This is the rung that actually carries root after an exploit run. It is checked
+        // before the shim below because it is a real uid 0 process, whereas the shim can
+        // only re-exec a `su` that may not exist (see RootBridge for why it cannot exist
+        // on a KernelSU kernel).
+        if (dfrootHooked() || RootBridge.present(context)) {
+            val bridged = runCatching { RootBridge.confirmRoot(context) }.getOrDefault(false)
+            if (bridged) runCatching { RootShell.acquire(context) }
             steps += Step(
-                "DFRoot /dev/df",
-                false,
-                "exploit has run this boot, but its su daemon has not granted this app yet"
+                "DFRoot uid 0 session",
+                bridged,
+                if (bridged) "answering on the bridge socket"
+                else "socket not answering — run DFRoot again and leave the app open"
             )
+            if (bridged) return Result(rungFor(), steps, null)
         }
 
         // ---- rung 5: the bundled temporary provider ----
@@ -197,6 +203,10 @@ object PrivilegeLadder {
     }
 
     private fun rungFor(): Rung = when {
+        // Before temporarySession: the bridge also sets that flag (it is a per-boot grant),
+        // and reporting "temporary root — released with the engine" for a DFRoot session
+        // names the wrong mechanism. DFROOT_ROOT says where it came from.
+        RootShell.bridgeMode() -> Rung.DFROOT_ROOT
         RootShell.temporarySession -> Rung.TEMP_ROOT
         dfrootHooked() -> Rung.DFROOT_ROOT
         // The grant may be Shizuku's rather than the device's own su. Saying

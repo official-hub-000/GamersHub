@@ -420,8 +420,25 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
             onAdopt = {
                 scope.launch {
                     busy = "adopting"
-                    // DFRoot has just started the manager's su daemon; walking the
-                    // ladder now is what turns "it ran" into "this app holds root".
+                    // The bridge first. On a KernelSU kernel there is no su daemon for the
+                    // ladder to find (see RootBridge), so climbing it is guaranteed to end
+                    // in "✗ device su" and "has not granted su yet" even when the run
+                    // worked perfectly. Asking the uid-0 session is the question that has
+                    // an answer.
+                    val bridged = withContext(Dispatchers.IO) {
+                        com.gamershub.core.root.RootBridge.confirmRoot(context) &&
+                            com.gamershub.core.root.RootShell.acquire(context)
+                    }
+                    if (bridged) {
+                        ladderStep = "✓ DFRoot uid 0 session"
+                        busy = ""
+                        com.gamershub.core.Engine.setRootOptIn(context, true)
+                        message = "Root adopted from the DFRoot session"
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    // No session: fall back to the ladder, which is still the right thing
+                    // on a device with a real su manager installed.
                     val ladder = withContext(Dispatchers.IO) {
                         com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
                     }
@@ -431,7 +448,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     busy = ""
                     if (ladder.reachedRoot) com.gamershub.core.Engine.setRootOptIn(context, true)
                     message = if (ladder.reachedRoot) "Root adopted via DFRoot"
-                              else "DFRoot has not granted su yet — finish the run first"
+                              else "The DFRoot session is not answering — run DFRoot again and leave the app open"
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
             }
@@ -1291,6 +1308,19 @@ private fun DfRootSection(
     // makes `ksud late-load` fail, and the run then reports success with no root. With
     // this on, every installed module is marked disabled before ksud starts.
     var disableModules by remember { mutableStateOf(com.gamershub.core.root.DfRootRunner.disableModules(context)) }
+    // Polled rather than read once: the session starts a moment after the run reports,
+    // and it disappears the moment bootstrap exits. A value captured at composition would
+    // say "not started" over a working session, which is the same class of lie as HOOKED
+    // with no root.
+    var bridgeAlive by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(df?.hooked, running) {
+        while (true) {
+            bridgeAlive = withContext(Dispatchers.IO) {
+                com.gamershub.core.root.RootBridge.confirmRoot(context)
+            }
+            delay(4_000)
+        }
+    }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -1348,6 +1378,20 @@ private fun DfRootSection(
                 MiniFact("KMI", st.deviceKmi.label)
                 MiniFact("HOOKED", if (st.hooked) "/dev/df" else "no")
             }
+
+            // The session row. Without it the card says HOOKED and the user has no way to
+            // tell a live uid-0 session from a kernel hook whose userspace half never
+            // started — which is precisely the state this tab sat in, reporting SUPPORTED
+            // and hooked while every control below said NOT_ROOT.
+            Spacer(Modifier.height(8.dp))
+            MiniFact(
+                "SESSION",
+                when {
+                    bridgeAlive == true -> "live · uid 0"
+                    bridgeAlive == false -> "not answering"
+                    else -> "not started"
+                }
+            )
 
             // SU manager picker — the exploit can only bootstrap an installed
             // manager that carries libksud.so, so this is a real choice, not a nicety.

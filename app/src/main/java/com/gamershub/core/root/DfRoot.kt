@@ -19,15 +19,22 @@ import android.os.Build
  *     An orphaned grandchild gets reaped by init, so the hook fires as uid 0 tid 1.
  *  4. That shellcode `insmod`s a kernel module — **one prebuilt `.ko` per KMI** —
  *     which writes `false` to `selinux_state` and calls `call_usermodehelper`.
- *  5. `bootstrap.c` then starts **the su daemon of an installed manager** (KernelSU,
- *     KernelSU-Next, KowSU).
+ *  5. `bootstrap.c` runs as uid 0 and then does two things: it execs `ksud late-load`
+ *     (KernelSU's userspace backend, so its module stages run and its manager UI can be
+ *     opened), and it **publishes a uid-0 command socket** which this app talks to
+ *     through [RootBridge].
  *
  * The consequence is the thing that matters for this app, and it is the opposite of
  * what "built-in root" sounds like:
  *
- * **DFRoot does not provide `su`.** It removes the reason you could not start
- * KernelSU's `su` daemon without an unlocked bootloader. KernelSU still owns the
- * superuser policy and the module system — which is exactly the division of labour
+ * **DFRoot does not provide `su`, and on a KernelSU kernel nothing can.** KernelSU has no
+ * su file at all: `kernel/feature/sucompat.c` intercepts execve for the literal path
+ * `/system/bin/su` and substitutes `/data/adb/ksud`, but only for uids the kernel already
+ * allows, and the one uid exempt from the allowlist is the manager package compiled into
+ * the `.ko` (`me.weishu.kernelsu`, from `kernel/Kbuild`). GamersHub is neither, so
+ * `su -c id` returns `su: inaccessible or not found` no matter what `ksud` started. The
+ * socket is the root, which is why the UI says "per boot" and the ladder reports
+ * DFROOT_ROOT rather than pretending a su install exists — which is exactly the division of labour
  * the two-layer model assumes.
  *
  * ## Why the engine is not compiled into this APK
@@ -193,12 +200,15 @@ object DfRoot {
             add(
                 when {
                     selfContained ->
-                        "KernelSU backend (ksud) is bundled in this build — no separate " +
-                            "manager app is needed, and DFRoot starts root from here"
+                        "KernelSU backend (ksud) is bundled — no separate manager app is " +
+                            "needed for the module stages, but root reaches GamersHub " +
+                            "through DFRoot's uid 0 session, not through su"
                     canBootstrap -> "SU manager found and bootstrap-capable"
                     else ->
                         "No bootstrap-capable SU manager found — install KernelSU, " +
-                            "KernelSU-Next or KowSU first; the exploit only starts their su daemon"
+                            "KernelSU-Next or KowSU first. KernelSU's backend (ksud) is " +
+                            "bundled here, but its superuser policy only answers its own " +
+                            "manager app: GamersHub gets root from DFRoot's uid 0 session"
                 }
             )
         }

@@ -69,6 +69,27 @@ object RootShell {
     }
 
     /**
+     * Adopts the uid-0 session DFRoot's bootstrap publishes.
+     *
+     * Distinct from [temporarySession] (the `ghsu` trampoline, which only re-execs `su`
+     * and therefore cannot help on a kernel with no su at all): this one is a real root
+     * process, so the state is READY and [run] routes through the socket.
+     */
+    private fun adoptBridge(label: String) {
+        state = State.READY
+        method = label
+        binPath = null
+        lastError = ""
+        temporarySession = true
+        // There is no `su` process behind this grant, so starting the multiplexed shell
+        // would only log "root session unavailable" immediately after reporting success.
+        // The socket *is* the session; run() routes through it.
+        runCatching { session?.close() }
+        session = null
+        record("bridge: id → uid=0")
+    }
+
+    /**
      * Adopts a root grant that Shizuku already holds.
      *
      * When `su -c id` works through the Shizuku shell but not from the app, the grant
@@ -139,6 +160,9 @@ object RootShell {
      */
     fun ready(): Boolean = state == State.READY
 
+    /** True when the current grant is the socket DFRoot's bootstrap publishes. */
+    fun bridgeMode(): Boolean = state == State.READY && method.contains("bridge")
+
     fun statusLabel(): String = when (state) {
         State.READY -> "Root ready · $method"
         State.SHELL_ONLY -> "Shell only (no root)"
@@ -171,7 +195,22 @@ object RootShell {
         "/vendor/bin/su",
     )
 
-    /** First su binary that exists, or null. Cheap: one shell, no prompt. */
+    /**
+     * First `su` **file** that exists and is executable, or null.
+     *
+     * ## Why null is a normal, correct answer on a KernelSU kernel
+     *
+     * KernelSU does not install a `su` file. `kernel/feature/sucompat.c` hooks execve and,
+     * when the requested path is exactly `/system/bin/su`, substitutes `/data/adb/ksud`
+     * before the syscall reaches the filesystem. Nothing exists on disk to `test -x`, so
+     * this returns null on a device where `su` works perfectly — which is exactly the
+     * state the ROOT tab sat in: HOOKED, ksud installed, and "su binary not found".
+     *
+     * That is why this function is only a *lookup*, and never the thing that decides
+     * whether root is available. It must stay cheap and must never show a prompt: it is
+     * called from diagnostics and from [run]. The question "does root work" is answered by
+     * actually running `su`, which is what [suAnswers], [probe] and the bridge do.
+     */
     fun suBinary(): String? {
         val cmd = SU_PATHS.joinToString("; ") { "test -x $it && echo $it" }
         val out = quick(cmd, 4_000) ?: return null
@@ -180,9 +219,36 @@ object RootShell {
         }
     }
 
-    fun suExists(): Boolean = suBinary() != null || runCatching {
-        ProcessBuilder("sh", "-c", "command -v su >/dev/null 2>&1").start().waitFor() == 0
-    }.getOrDefault(false)
+    /**
+     * Runs `su -c id` and returns what it said, or null on timeout.
+     *
+     * The only question with a truthful answer, because on a KernelSU kernel `su` is an
+     * execve interception rather than a file. Bounded hard: a `su` sitting on a superuser
+     * dialog must not turn a status read into a hang.
+     */
+    fun suProbe(timeoutMs: Long = 6_000): String? = runCatching {
+        val p = ProcessBuilder("sh", "-c", "su -c id 2>&1 || /system/bin/su -c id 2>&1")
+            .redirectErrorStream(true)
+            .start()
+        val out = StringBuilder()
+        val reader = Thread {
+            runCatching { p.inputStream.bufferedReader().forEachLine { out.appendLine(it) } }
+        }
+        reader.isDaemon = true
+        reader.start()
+        val done = p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!done) {
+            runCatching { p.destroyForcibly() }
+            null
+        } else {
+            reader.join(500)
+            out.toString()
+        }
+    }.getOrNull()
+
+    /** Whether running `su` actually yields uid 0. See [suProbe]. */
+    fun suAnswers(timeoutMs: Long = 6_000): Boolean =
+        suProbe(timeoutMs)?.contains("uid=0") == true
 
     /**
      * Obtains root. This may show the Magisk/SuperSU prompt, so call it from a
@@ -202,13 +268,31 @@ object RootShell {
      */
     fun probe(context: Context): Boolean {
         if (state == State.READY) return true
+        // The uid-0 bridge first: when DFRoot has run, it is the only thing on the device
+        // that can answer, and it answers in one round trip instead of a 20 s su wait.
+        if (RootBridge.confirmRoot(context)) {
+            adoptBridge("DFRoot session (uid 0 bridge)")
+            return true
+        }
         val binary = suBinary()
         val candidates = buildList {
             add("su")
             binary?.let { if (it != "su") add(it) }
         }
         for (bin in candidates) {
-            val out = quick("$bin -c id", timeoutMs = 20_000) ?: continue
+            // quick() reads the stream to EOF with no deadline of its own, so a `su` that
+            // is sitting on a superuser dialog would hang the caller for as long as the
+            // dialog is up. Both branches below are bounded and kill the process.
+            val out = if (bin == "su") suProbe() else runCatching {
+                val p = ProcessBuilder(bin, "-c", "id").redirectErrorStream(true).start()
+                if (!p.waitFor(20, TimeUnit.SECONDS)) {
+                    runCatching { p.destroyForcibly() }
+                    null
+                } else {
+                    p.inputStream.bufferedReader().readText()
+                }
+            }.getOrNull()
+            if (out == null) continue
             if (out.contains("uid=0")) {
                 state = State.READY
                 method = if (bin == "su") "su" else "su ($bin)"
@@ -231,6 +315,13 @@ object RootShell {
 
     fun acquire(context: Context): Boolean {
         if (ready()) return true
+
+        // 0. The bridge, when the exploit has already run. This is a genuine uid 0
+        //    session and it is what makes the tab work after RUN DFRROOT.
+        if (RootBridge.confirmRoot(context)) {
+            adoptBridge("DFRoot session (uid 0 bridge)")
+            return true
+        }
 
         // 1. su, tried through PATH first and then by absolute path. Magisk's
         //    debug_ramdisk and the KernelSU/APatch bins are not on an app's PATH,
@@ -305,8 +396,24 @@ object RootShell {
             ProcessBuilder("sh", "-c", "command -v su").start()
                 .inputStream.bufferedReader().readText().trim().ifBlank { "not found" }
         }.getOrDefault("probe failed")}"
-        lines += "su binary    ${suBinary() ?: "not found in any known location"}"
+        lines += "su binary    ${suBinary() ?: "not found as a file — expected on a KernelSU kernel, where su is an execve hook, not a file"}"
+        lines += "su answers   ${if (suAnswers()) "yes — uid 0" else "no (this is the question that matters; the row above is only a file lookup)"}"
         lines += "method       ${method.ifBlank { "—" }}"
+        // The rows that separate the four different things "no root" can mean on this
+        // device, which used to all read as "su not found".
+        val bridge = com.gamershub.GamersHubApp.instance?.let { ctx ->
+            when {
+                !RootBridge.present(ctx) -> "no socket (DFRoot has not run, or was refused)"
+                RootBridge.confirmRoot(ctx) -> "answering as uid 0"
+                else -> "socket present but not answering (run finished, or bootstrap died)"
+            }
+        } ?: "no application context"
+        lines += "root bridge  $bridge"
+        lines += "selinux      ${run("cat /sys/fs/selinux/enforce 2>/dev/null")?.trim()?.let {
+            if (it.startsWith("0")) "permissive (DFRoot sets this; returns to enforcing on reboot)"
+            else "enforcing"
+        } ?: "—"}"
+        lines += "ksu hook     ${run("ls -l /dev/df 2>/dev/null || ls -l /dev/dfm1 2>/dev/null")?.trim()?.take(60).orEmpty().ifBlank { "—" }}"
         lines += "session      ${if (session?.alive == true) "alive" else "not running"}"
         lines += "uid now      ${run("id", 4_000)?.lines()?.firstOrNull()?.take(70) ?: "—"}"
         lines += "magisk       ${run("magisk -V 2>/dev/null", 4_000)?.trim()?.take(40).orEmpty().ifBlank { "—" }}"
@@ -362,6 +469,24 @@ object RootShell {
      */
     fun run(command: String, timeoutMs: Long = 8_000): String? {
         if (state != State.READY) return null
+        // The bridge is the whole root session when DFRoot supplied it. It is checked
+        // first and it returns: there is no su process to keep alive, so falling through
+        // to retrySession()/`su -c` would burn the timeout twice on every single command
+        // and then report a failure that the bridge had already answered. The second
+        // caller-visible effect of falling through was worse than slow: a real answer was
+        // thrown away and replaced by null, so every privileged read looked empty.
+        if (bridgeMode()) {
+            val ctx = com.gamershub.GamersHubApp.instance
+            val out = ctx?.let { RootBridge.exec(it, command, timeoutMs) }
+            if (out != null) {
+                record("$ " + command.take(70) + " → root (bridge)")
+                return out
+            }
+            // The socket went away: the run expired or bootstrap died. Say so rather
+            // than quietly retrying something that cannot work.
+            record("root bridge stopped answering — run DFRoot again")
+            return null
+        }
         // A previous start may have failed before the manager settled. Retry here so a
         // single unlucky moment does not force every later command down the slower
         // one-shot path for the rest of the session.

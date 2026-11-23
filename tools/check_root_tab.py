@@ -234,6 +234,127 @@ check(
     "being opened; that has to stay behind an explicit press",
 )
 
+# ---- KernelSU's `su` is virtual, so existence tests lie --------------------------
+# KernelSU hooks execve and substitutes /data/adb/ksud when the path is exactly
+# /system/bin/su (kernel/feature/sucompat.c). There is no su file on disk. Any probe
+# that only asks "does this path exist and is it executable" reports no root on a
+# device where su works — which is what happened after DFRoot succeeded: HOOKED,
+# ksud installed, and every control still disabled.
+root_shell = (ROOT / "app/src/main/java/com/gamershub/core/root/RootShell.kt").read_text()
+_su = root_shell.split("fun suBinary()")[1].split("\n    fun ")[0]
+check(
+    "uid=0" not in _su,
+    "suBinary() must stay a cheap FILE LOOKUP and must not execute su: it is called from "
+    "diagnostics and from run(), where a superuser prompt or a hung su would turn a status "
+    "read into a hang",
+)
+# The check that actually decides whether root works has to execute su, because on a
+# KernelSU kernel there is no file to find.
+_probe = root_shell.split("fun suProbe(")[1].split("\n    fun suAnswers")[0] \
+    if "fun suProbe(" in root_shell else ""
+check(
+    "destroyForcibly" in _probe and "waitFor(timeoutMs" in _probe,
+    "RootShell.suProbe() must run su under a hard timeout and kill it on expiry: a su "
+    "sitting on a superuser dialog must not hang a status read",
+)
+_ans = root_shell.split("fun suAnswers(")[1].split("\n    fun ")[0] \
+    if "fun suAnswers(" in root_shell else ""
+check(
+    'uid=0' in _ans,
+    "RootShell.suAnswers() must check the answer for uid=0: test -x and command -v "
+    "cannot tell 'no su file' from 'root works', because KernelSU serves su by "
+    "intercepting execve rather than installing it",
+)
+runner = (ROOT / "app/src/main/java/com/gamershub/core/root/DfRootRunner.kt").read_text()
+check(
+    "su -c id" in runner,
+    "awaitSu must try the literal su name: a resolved-path-only probe never fires on a "
+    "KernelSU kernel and the 15 s wait always times out",
+)
+
+# ---- the uid-0 bridge contract ---------------------------------------------------
+# DFRoot's bootstrap publishes a root session over a unix socket because KernelSU's `su`
+# cannot exist for this uid (sucompat only substitutes /data/adb/ksud for uids the kernel
+# already allows, and the allowlist-exempt uid is the compiled-in manager package). Both
+# ends have to agree on the wire format exactly or every command times out, which looks
+# identical to "no root" in the UI.
+boot = (ROOT / "app/src/main/jni/bootstrap.c").read_text()
+bridge = (ROOT / "app/src/main/java/com/gamershub/core/root/RootBridge.kt").read_text()
+check(
+    'BRIDGE_DONE "__GH_ROOT_DONE__\\n"' in boot,
+    "bootstrap.c: the bridge terminator must be __GH_ROOT_DONE__ followed by a newline",
+)
+check(
+    '"__GH_ROOT_DONE__"' in bridge,
+    "RootBridge.kt: the client must look for the same terminator bootstrap.c writes",
+)
+# Inspect the function body, not the file: an earlier version of this rule matched the
+# `uid=0(root)` in confirmRoot's doc comment and passed while the body trusted any answer.
+_confirm = bridge.split("fun confirmRoot(")[1]
+check(
+    'contains("uid=0")' in _confirm,
+    "RootBridge.confirmRoot must check the answer for uid=0 rather than trust that a socket "
+    "exists — a stale socket after a crash answers nothing and must not be reported as root",
+)
+check(
+    "RootBridge.confirmRoot" in root_shell,
+    "RootShell must probe the bridge: on this kernel it is the only path that can succeed",
+)
+check(
+    "RootBridge.confirmRoot" in runner,
+    "DfRootRunner.awaitSu must wait for the bridge, not for a su daemon that cannot appear",
+)
+# The NUL that broke every reply once: output must end at the terminator, so nothing may
+# write a byte after the command's own output except the step line.
+check(
+    "fputc(0, out)" not in boot,
+    "bootstrap.c must not write a NUL after a command's output: the client compares whole "
+    "lines, so a stray byte turns every reply into a timeout",
+)
+check(
+    "sun_path" in boot and ">= sizeof(addr.sun_path)" in boot,
+    "bootstrap.c must refuse an over-long socket path instead of truncating it, or it "
+    "binds somewhere else and every connect later looks like 'no root'",
+)
+
+# The module builds the argv that reaches bootstrap; the app parses nothing from it, so a
+# dropped flag is silent. Fail the build instead.
+mod = (ROOT / "lkm/dfroot.c").read_text()
+# Look only at the snprintf that builds the command line, never at the file: the flag is
+# also mentioned in the comment above it, and a rule that matches the comment passes while
+# the argv is missing the flag.
+_snprintf = mod.split('snprintf(cmd, sizeof(cmd),')[1].split('bootstrap, PAYLOAD_DIR')[0]
+check(
+    "--bridge-seconds" in _snprintf and "--payload-dir" in _snprintf,
+    "lkm/dfroot.c must exec bootstrap with --payload-dir, --prefs and --bridge-seconds: a "
+    "missing flag falls back to a default, and the two sides disagreeing is invisible",
+)
+
+# ---- the session must be visible on the tab --------------------------------------
+# A working root session that the UI does not show is indistinguishable from no root at
+# all, which is the exact failure this release exists to fix: the kernel said HOOKED and
+# every control said NOT_ROOT.
+# The section composable only, so a rule about the card cannot be satisfied by the ADOPT
+# handler elsewhere in the same file.
+_section = screen.split("private fun DfRootSection(")[1].split("private fun ")[0] \
+    if "private fun DfRootSection(" in screen else ""
+check(
+    "RootBridge.confirmRoot" in _section,
+    "DfRootSection must poll the uid-0 session and show it: a live session nothing mentions "
+    "reads as 'no root', which is how HOOKED-without-root went unnoticed",
+)
+check(
+    'MiniFact(\n                "SESSION"' in screen or '"SESSION"' in screen,
+    "the DFRoot card must carry a SESSION fact so HOOKED can be told apart from a session "
+    "that is actually answering",
+)
+_adopt = screen.split("onAdopt = {")[1].split("}\n            }")[0] if "onAdopt = {" in screen else ""
+check(
+    "RootBridge.confirmRoot" in _adopt,
+    "ADOPT ROOT must ask the session first: climbing the ladder on a kernel with no su "
+    "always ends in a ✗ even when the run worked",
+)
+
 # ---- report ---------------------------------------------------------------------
 if failures:
     print(f"FAIL: {len(failures)} root-tab problem(s)")

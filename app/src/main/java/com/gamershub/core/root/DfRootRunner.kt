@@ -250,40 +250,62 @@ object DfRootRunner {
     }
 
     /**
-     * Waits for the su daemon this run just started to actually answer.
+     * Waits for the root this run just created to actually answer.
      *
-     * Bounded, and it says what it saw on every outcome. A daemon that never comes up is
-     * the difference between "run the exploit again" and "the manager did not accept the
-     * late load", and the user cannot tell those apart without this line.
+     * It does **not** wait for a `su` daemon, because on this kernel one can never appear.
+     * The long explanation is in [RootBridge] and in `bootstrap.c`; the short version is
+     * that KernelSU serves `su` by intercepting execve for `/system/bin/su`, only for uids
+     * the kernel already allows, and the one uid exempt from the allowlist is the manager
+     * package that was compiled into the `.ko`. Our uid is neither, so `su -c id` returns
+     * `su: inaccessible or not found` forever and the old 15 s wait could only ever end in
+     * "the su daemon did not answer".
+     *
+     * What DFRoot *does* produce is a live uid-0 process in `u:r:init:s0`, which is why
+     * `bootstrap` now publishes a socket. Both are probed here: the bridge first, then a
+     * plain `su` for devices where a real manager is installed alongside.
      */
     private fun awaitSu(context: Context, tap: (String) -> Unit) {
         val deadline = System.currentTimeMillis() + SU_WAIT_MS
-        tap("waiting for the su daemon…\n")
+        tap("waiting for the root session…\n")
+        var reportedBridge = false
         while (System.currentTimeMillis() < deadline) {
+            // 1. The uid-0 bridge this run published. One connect, one `id`.
+            if (RootBridge.confirmRoot(context)) {
+                if (!reportedBridge) {
+                    tap("root session is answering as uid 0 (DFRoot bridge).\n")
+                    reportedBridge = true
+                }
+                // Adopt now rather than making the user hunt for ADOPT ROOT: the whole
+                // point of the run was to end up privileged.
+                runCatching { RootShell.acquire(context) }
+                return
+            }
+            // 2. A real su, for devices that also carry Magisk/KernelSU/APatch.
             val answered = runCatching {
-                val bin = RootShell.suBinary() ?: "su"
-                val p = ProcessBuilder(bin, "-c", "id").redirectErrorStream(true).start()
+                val bin = RootShell.suBinary()
+                val cmd = if (bin != null) "$bin -c id 2>&1" else "su -c id 2>&1 || /system/bin/su -c id 2>&1"
+                val p = ProcessBuilder("sh", "-c", cmd).redirectErrorStream(true).start()
                 val out = p.inputStream.bufferedReader().readText()
                 p.waitFor()
                 out.contains("uid=0")
             }.getOrDefault(false)
             if (answered) {
                 tap("su is answering as uid 0.\n")
-                // Pick the grant up now rather than making the user find ADOPT ROOT: the
-                // whole point of the run was to end up privileged.
                 runCatching { RootShell.acquire(context) }
                 return
             }
             Thread.sleep(500)
         }
         tap(
-            "the su daemon did not answer within ${SU_WAIT_MS / 1000}s. If ksud reported " +
-                "success above, the manager may need a moment: press ADOPT ROOT. If it " +
-                "reported an error, enable \"Disable KSU modules\" and run again.\n"
+            "no root session answered within ${SU_WAIT_MS / 1000}s. If the run above reported " +
+                "an error, that error is the reason: enable \"Disable KSU modules\" and run " +
+                "again. If it reported success, the exploit ran but did not reach root on " +
+                "this kernel — press DIAGNOSE, which now reports the bridge socket and the " +
+                "kernel's own hook state separately.\n"
         )
     }
 
-    /** How long to wait for `su` after a successful late-load. */
+    /** How long to wait for root after a successful late-load. */
     private const val SU_WAIT_MS = 15_000L
 
     private fun post(onLine: (String) -> Unit, msg: String) {

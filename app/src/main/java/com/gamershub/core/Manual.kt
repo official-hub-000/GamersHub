@@ -648,14 +648,20 @@ object Manual {
                 "The section lists the installed managers it found and the kernel it expects.",
                 "Pick the SU manager the module should attach to — KernelSU, KernelSU-Next, KowSU or Magisk.",
                 "Press RUN DFROOT and leave the screen open while it works.",
-                "After it reports success it waits up to 15 s for su itself, then picks the grant up. Press ADOPT ROOT if that wait times out.",
+                "On success the run keeps a root session open for 15 minutes and GamersHub connects to it automatically.",
+                "Press ADOPT ROOT if that first connection is missed. Leave the app open: the session ends when it closes or the time is up.",
                 "Rebooting always clears it."
             ),
             note = "The payload is embedded in this APK — you do not need to install the standalone DFRoot app. " +
+                "**This does not install su, and on a KernelSU kernel it cannot.** KernelSU has no su file: it " +
+                "intercepts the exec of /system/bin/su and substitutes its own daemon, but only for apps it has " +
+                "already allowed, and the one app it allows without being asked is its own manager. GamersHub is " +
+                "not that app, so su stays \"inaccessible or not found\" no matter what the bundled ksud starts. " +
+                "Root therefore reaches GamersHub through DFRoot's own uid 0 session, which is why the ladder says " +
+                "\"root via DFRoot · per boot\" and not \"persistent root\". DIAGNOSTICS reports the session " +
+                "separately from the su file so the two are not confused again. " +
                 "If the run says ksud succeeded but no root appears, turn on \"Disable KSU modules\" and run again: " +
-                "an incompatible module is the usual reason. The app also refuses to run when its staging path and " +
-                "the payload's compiled-in path disagree, because that used to load the module, go permissive and " +
-                "exec nothing."
+                "an incompatible module is the usual reason."
         ),
         HelpTopic(
             id = "session-root",

@@ -75,7 +75,12 @@ object ModuleManager {
                 "elif command -v ksud >/dev/null 2>&1 || [ -d /data/adb/ksu ]; then echo kernelsu; " +
                 "elif command -v apd >/dev/null 2>&1 || [ -d /data/adb/ap ]; then echo apatch; " +
                 "elif [ -d /data/adb ]; then echo unknown; else echo none; fi"
-        ) ?: return Manager.UNKNOWN
+            // No privileged shell means we could not ask, which is not the same as "there
+            // is a manager we do not recognise". Returning UNKNOWN here is what printed
+            // "an unrecognised manager — policy store not readable" on a device with no
+            // root session at all, next to "su binary not found": two different claims
+            // about the same absence. NONE is the truthful answer.
+        ) ?: return Manager.NONE
         return when {
             r.contains("magisk") -> Manager.MAGISK
             r.contains("kernelsu") -> Manager.KERNELSU
