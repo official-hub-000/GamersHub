@@ -102,6 +102,10 @@ class AdbConnectionManager private constructor(context: Context) : AbsAdbConnect
     fun resetIdentity() {
         AdbIdentity.clear(appContext)
         AdbIdentity.load(appContext)
+        // The TLS context caches the key it was built with. Without this, pairing after a
+        // reset presents the certificate from *before* the reset while connect presents
+        // the new one, so the code is accepted and the shell still refuses.
+        runCatching { io.github.muntashirakon.adb.SslUtils.reset() }
     }
 
     companion object {

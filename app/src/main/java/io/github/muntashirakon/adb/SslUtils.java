@@ -21,9 +21,28 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509TrustManager;
 
-final class SslUtils {
+public final class SslUtils {
     private static boolean customConscrypt = false;
     private static SSLContext sslContext;
+
+    /**
+     * Drops the cached context so the next handshake uses the current identity.
+     *
+     * The context is built from one specific key and certificate and bound to them
+     * through its KeyManager. Caching it is a real optimisation — building an
+     * OpenSSL-backed TLSv1.3 context costs tens of milliseconds — but it also means that
+     * after the identity changes, every later handshake still presents the OLD
+     * certificate.
+     *
+     * That is what made "forget identity" worse than useless: pairing would present the
+     * certificate from before the reset, adbd would authorise that one, and the
+     * connection would then present the newly generated certificate, which adbd has never
+     * seen. The symptom is "Pairing code accepted, still not paired", which no amount of
+     * re-pairing can fix because the fault is in this cache.
+     */
+    public static synchronized void reset() {
+        sslContext = null;
+    }
 
     public static boolean isCustomConscrypt() {
         return customConscrypt;

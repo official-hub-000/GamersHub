@@ -210,6 +210,28 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                 if (detail.isNotBlank() && !connected) {
                     Spacer(Modifier.height(8.dp))
                     Text(detail, color = GC.TextDim, fontSize = 12.sp)
+                    // The stages, always — not only after something failed. Every failure
+                    // in this subsystem looks identical on screen, so the one screen a
+                    // user can photograph has to carry the facts that tell them apart.
+                    Spacer(Modifier.height(10.dp))
+                    Column {
+                        Text(
+                            "STAGES",
+                            color = accent,
+                            fontSize = 10.sp,
+                            letterSpacing = 1.2.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        WirelessAdb.diagnostics(context).forEach { line ->
+                            Text(
+                                line,
+                                color = GC.TextDim,
+                                fontSize = 11.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            )
+                        }
+                    }
                 }
                 if (message.isNotBlank() && connected) {
                     Spacer(Modifier.height(8.dp))

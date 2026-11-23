@@ -41,18 +41,37 @@ import java.io.File
  */
 object DfPaths {
 
-    /** The app's real data directory, as the platform reports it. */
-    private fun dataDir(context: Context): File =
-        runCatching { File(context.applicationInfo.dataDir) }
-            .getOrElse { context.filesDir.parentFile ?: context.filesDir }
-
     /**
-     * Where the staged `bootstrap` and `ksud` live.
+     * The directory the payload stages into, as a **device-protected** path.
      *
-     * `dataDir + "/" + bootstrap.name`, i.e. a sibling of `files/` — the layout upstream
-     * DFRoot uses, and the one its kernel module is written against.
+     * ## This must be /data/user_de/0, not /data/user/0
+     *
+     * The kernel module runs `call_usermodehelper` from init's context and `exec`s an
+     * absolute path that was compiled into it. Credential-encrypted storage does not
+     * exist until the user unlocks, so that path is device-protected. It is
+     * `/data/user_de/0/<pkg>/bootstrap`.
+     *
+     * `applicationInfo.dataDir` is **credential**-encrypted — `/data/user/0/<pkg>` — even
+     * when the package declares a device-protected data dir, unless it has been
+     * explicitly migrated. Using it here produced a path that disagreed with the payload's
+     * compiled-in path, so `layoutMatches()` returned false and DFRoot refused to run on
+     * every device. That was a regression introduced by this file, and it is exactly the
+     * class of two-parties-disagree bug this file exists to prevent.
+     *
+     * `createDeviceProtectedStorageContext().filesDir.parentFile` is the device-protected
+     * dir when the platform provides one, which is the layout upstream DFRoot uses. The
+     * credential dir is the fallback for an install that genuinely has no DE storage — and
+     * on such an install the layout marker will disagree and the app says so up front
+     * instead of failing silently.
      */
-    fun payloadDir(context: Context): File = dataDir(context)
+    fun payloadDir(context: Context): File {
+        val de = runCatching {
+            context.createDeviceProtectedStorageContext().filesDir.parentFile
+        }.getOrNull()
+        if (de != null) return de
+        return runCatching { File(context.applicationInfo.dataDir) }
+            .getOrElse { context.filesDir.parentFile ?: context.filesDir }
+    }
 
     fun bootstrap(context: Context): File = File(payloadDir(context), "bootstrap")
 

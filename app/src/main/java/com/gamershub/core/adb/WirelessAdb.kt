@@ -29,10 +29,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * The two load-bearing facts live in the vendored libadb, and each is individually
  * reasonable:
  *
- *  1. `AdbConnection.isConnected()` is `!socket.isClosed() && socket.isConnected()`.
- *     `java.net.Socket.isConnected()` is true for the whole life of the object once it
- *     has connected **once** — a socket whose peer went away is still "connected" by
- *     that test. So a dropped link keeps reporting a live connection.
+ *  1. `AbsAdbConnectionManager.isConnected()` is
+ *     `mAdbConnection != null && isConnected() && isConnectionEstablished()`. The
+ *     `isConnectionEstablished()` term is the important one, and it lives in the vendored
+ *     `AdbConnection` — it is NOT the plain `java.net.Socket.isConnected()` flag, which
+ *     would stay true forever once the object had connected once. (This comment used to
+ *     claim it was that flag; reading the vendored source shows the library is stricter
+ *     than that.) The failure mode it does have is on the other side: once the link is
+ *     torn down, `connect()` refuses to dial again until the object is discarded.
  *
  *  2. `AbsAdbConnectionManager.connect(port)` opens with
  *     `if (isConnected()) return false;` — it bails out *before dialing*, and returns
@@ -132,6 +136,53 @@ object WirelessAdb {
      */
     fun alive(context: Context): Boolean = runCatching {
         connected() && AdbConnectionManager.get(context).isConnected && verify(AdbConnectionManager.get(context))
+    }.getOrDefault(false)
+
+    /**
+     * A stage-by-stage account of the last attempt, for the sheet and DIAGNOSE.
+     *
+     * "Not working" is not a diagnosis, and every failure in this file looks the same on
+     * screen: a red row and a sentence. These are the facts that actually distinguish the
+     * stages — which ports were tried, who answered, whether the pairing tunnel got as far
+     * as the TLS handshake, and which provider supplied the keying material — so one
+     * screenshot identifies the broken stage instead of a fourth round of guessing.
+     */
+    fun diagnostics(context: Context): List<String> = buildList {
+        add("status        ${status.name.lowercase()} — ${statusLabel()}")
+        add("wireless      ${wirelessSupported()} (needs API 29+; this is ${android.os.Build.VERSION.SDK_INT})")
+        add("nearby perm   ${nearbyGranted(context)}")
+        add("settings port ${settingsPort(context) ?: "not readable"}")
+        add("remembered    ${rememberedPort(context).takeIf { it > 0 } ?: "none"}")
+        add("discovered    ${shellPort.takeIf { it > 0 } ?: "not found"}")
+        add("pairing port  ${pairingPort.takeIf { it > 0 } ?: "not found"}")
+        add("connected     ${connected()} (daemon ${com.gamershub.core.adb.ShellDaemon.alive})")
+        add("tls provider  ${tlsProvider()}")
+        add("last error    ${lastError.ifBlank { "—" }}")
+    }
+
+    /**
+     * Which SSL provider pairing will use.
+     *
+     * The bundled `org.conscrypt` is the one that can export keying material on recent
+     * Android; the platform copy is hidden API and refuses. Reporting which one is in use
+     * is the difference between "pairing is broken" and "this build shipped without its
+     * Conscrypt".
+     */
+    private fun tlsProvider(): String = runCatching {
+        val bundled = runCatching { Class.forName("org.conscrypt.OpenSSLProvider") }.isSuccess
+        val platform = runCatching { Class.forName("com.android.org.conscrypt.OpenSSLProvider") }.isSuccess
+        when {
+            bundled -> "bundled Conscrypt (can export keying material)"
+            platform -> "platform Conscrypt only — pairing will fail on API 36+"
+            else -> "none found"
+        }
+    }.getOrDefault("unknown")
+
+    /** Whether the Android 13+ Nearby-devices permission has actually been granted. */
+    fun nearbyGranted(context: Context): Boolean = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 33) true
+        else context.checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
     }.getOrDefault(false)
 
     /** Last port that actually carried a shell, or 0. */

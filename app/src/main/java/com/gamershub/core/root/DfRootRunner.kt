@@ -86,6 +86,10 @@ object DfRootRunner {
     /** Human-readable reason the payload cannot run, or "" when it can. */
     fun payloadProblem(context: Context): String {
         val dir = context.applicationInfo.nativeLibraryDir
+        // Ask the device first: whether device-protected storage exists here, whether it
+        // is writable, and whether it is the directory the payload was compiled for.
+        val layout = runCatching { StorageLayoutCheck.inspect(context) }.getOrNull()
+        if (layout != null && !layout.usable) return layout.problem
         val compiled = DfPaths.compiledBootstrapPath(context)
         return when {
             !java.io.File(dir, "libdfroot.so").exists() ->

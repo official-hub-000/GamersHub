@@ -141,11 +141,23 @@ jobs:
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           echo "--- native libraries in debug APK ---"
           unzip -Z1 "$APK" | grep -E '^lib/arm64-v8a/lib(dfroot|bootstrap)\.so$' | sort
-          for lib in libdfroot.so libbootstrap.so; do
+          for lib in libdfroot.so libbootstrap.so libdfroot-path.so; do
             unzip -Z1 "$APK" | grep -qx "lib/arm64-v8a/$lib" \
               || { echo "::error::$lib missing from debug APK"; exit 1; }
           done
-          echo "OK: debug APK contains libdfroot.so + libbootstrap.so"
+          echo "OK: debug APK contains libdfroot.so + libbootstrap.so + the layout marker"
+
+          # The marker is not just presence: it must carry the exact path the payload
+          # was compiled to exec, and that path must be the one the app will stage into.
+          # A missing or stale marker makes DfPaths.layoutMatches() return false, which
+          # makes payloadPresent() false, which makes DFRoot refuse to run at all.
+          echo "--- layout marker trailer ---"
+          unzip -p "$APK" lib/arm64-v8a/libdfroot-path.so > /tmp/pathmarker.so
+          MARKED=$(strings -a /tmp/pathmarker.so | grep -E '^/data/user.*/bootstrap$' | tail -1)
+          echo "marked: ${MARKED:-<none>}"
+          [ -n "$MARKED" ] || { echo "::error::layout marker carries no bootstrap path"; exit 1; }
+          [ "$MARKED" = "/data/user_de/0/com.gamershub/bootstrap" ] \
+            || { echo "::error::layout marker disagrees with DfPaths: $MARKED"; exit 1; }
 
       - name: Report errors as annotations
         if: failure()

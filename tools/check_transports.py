@@ -379,6 +379,58 @@ for name, needle in (
         f"Shell.exec must route to the {name} transport",
     )
 
+# 18. The staging dir must be device-protected.
+#     applicationInfo.dataDir is /data/user/0 (credential-encrypted) and disagrees with
+#     the path the kernel module execs, so using it made every DFRoot run refuse.
+check(
+    "createDeviceProtectedStorageContext" in dfpaths,
+    "DfPaths.payloadDir must resolve device-protected storage; applicationInfo.dataDir is "
+    "credential-encrypted (/data/user/0) and disagrees with the payload's compiled path, "
+    "which makes layoutMatches() false and DFRoot refuse on every device",
+)
+check(
+    "fun payloadDir(context: Context): File = dataDir(context)" not in dfpaths,
+    "DfPaths.payloadDir must not delegate straight to dataDir — that is the regression",
+)
+
+# 19. The TLS context caches the key it was built with.
+sslutils = read(ROOT / "app/src/main/java/io/github/muntashirakon/adb/SslUtils.java")
+check(
+    "public static synchronized void reset()" in sslutils,
+    "SslUtils must expose reset(): it caches the SSLContext built from one key, so after "
+    "an identity reset every handshake still presents the old certificate",
+)
+check(
+    "SslUtils.reset()" in manager,
+    "AdbManager.resetIdentity must clear the cached SSLContext, or pairing presents the "
+    "pre-reset certificate while connect presents the new one",
+)
+
+# 20. The device must be able to report what its storage layout actually is.
+check(
+    "object StorageLayoutCheck" in strip_comments(
+        read(SRC / "core/root/StorageLayoutCheck.kt")
+    ),
+    "StorageLayoutCheck is missing: path checks that only run at build time cannot see "
+    "whether device-protected storage exists or is writable on the running device",
+)
+check(
+    "gh-layout-probe" in read(SRC / "core/root/StorageLayoutCheck.kt"),
+    "StorageLayoutCheck must actually write a file at the staging path; anything weaker "
+    "can report a layout as usable when the payload cannot be staged",
+)
+
+# 21. Every failure must be photographable.
+check(
+    "fun diagnostics(" in wireless,
+    "WirelessAdb must expose a stage-by-stage diagnostics() — every failure in this "
+    "subsystem is identical on screen, and guessing at it has cost four releases",
+)
+check(
+    "WirelessAdb.diagnostics(context)" in read(SRC / "ui/sheets/WirelessAdbSheet.kt"),
+    "the wireless sheet must display WirelessAdb.diagnostics(context)",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

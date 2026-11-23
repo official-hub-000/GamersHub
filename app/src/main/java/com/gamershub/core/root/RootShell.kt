@@ -334,6 +334,12 @@ object RootShell {
             lines += "wireless     ${runCatching { com.gamershub.core.adb.WirelessAdb.statusLabel() }
                 .getOrDefault("unknown")}"
         }
+        // The payload layout, always and on one line each. Three releases shipped with the
+        // four parties disagreeing about one path; this is the evidence that they now
+        // agree, and where to look when they do not.
+        runCatching {
+            com.gamershub.core.root.StorageLayoutCheck.inspect(context).lines().forEach { lines += it }
+        }
         if (lastError.isNotBlank()) lines += "last error   $lastError"
         return lines
     }
