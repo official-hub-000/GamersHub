@@ -308,7 +308,16 @@ object WirelessAdb {
         if (manual > 0) {
             // Typed in by hand — trust it and skip discovery entirely.
             pairingPort = manual
-        } else if (pairingPort <= 0) {
+        } else {
+            // ALWAYS rediscover. A pairing port lives only as long as one "Pair device
+            // with pairing code" dialog: adbd closes it when the dialog is dismissed or
+            // times out, and opens a different number next time. Caching it across
+            // attempts meant the second and every later pairing dialled a port from a
+            // previous session, got a live listener, and failed inside the SPAKE2
+            // exchange — "Could not exchange peer info", which reads as bad crypto and
+            // is actually a dead port. That is why re-entering the code never helped and
+            // why "turn wireless off and on" sometimes did: it produced a new port.
+            pairingPort = 0
             discoverPairingPort(context, 5_000)
         }
         val target = if (manual > 0) manual else pairingPort
@@ -336,8 +345,10 @@ object WirelessAdb {
             }
         } catch (t: Throwable) {
             // Not "pairing failed": either the code was wrong (the user can fix that) or
-            // our crypto refused (the user cannot). remedy() is what tells them apart.
-            lastError = remedy(t)
+            // our crypto refused (the user cannot) or the port was not a pairing port at
+            // all. remedy() is what tells them apart, and it names the port it used so
+            // the three are distinguishable without a debugger.
+            lastError = remedy(t) + " (pairing port $target)"
             status = classify(t)
             false to lastError
         }
@@ -574,8 +585,13 @@ object WirelessAdb {
 
     private fun classify(t: Throwable): Status {
         val msg = (t.message ?: "") + " " + (t.cause?.toString() ?: "")
+        // "Could not exchange peer info" is the SPAKE2 exchange failing. It is NOT proof
+        // of a crypto fault: a port that is no longer a pairing port, or a code from a
+        // dialog that has since closed, produces exactly this too. Only the TLS-specific
+        // failures below are treated as this build's fault.
+        val exchangeFailed = msg.contains("exchange peer info", true)
         return when {
-            isCryptoFailure(msg) -> Status.UNSUPPORTED
+            !exchangeFailed && isCryptoFailure(msg) -> Status.UNSUPPORTED
             msg.contains("pair", true) || msg.contains("unauthor", true) ||
                 msg.contains("authentication", true) -> Status.NOT_PAIRED
             else -> Status.OFF

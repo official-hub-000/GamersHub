@@ -412,8 +412,9 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "If auto-detect fails, type the port shown on the Wireless debugging " +
-                    "screen (the pairing dialog prints its own).",
+                "The pairing port changes every time that dialog opens, so enter the " +
+                    "code from the dialog that is open right now. If auto-detect misses " +
+                    "it, the dialog prints its own port under the code — type that one.",
                 color = GC.TextDim.copy(alpha = 0.85f),
                 fontSize = 10.sp
             )

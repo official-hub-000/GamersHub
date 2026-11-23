@@ -626,6 +626,47 @@ check(
     "being interrupted is not permission to discard what broke",
 )
 
+# 31. The pairing port must never be reused.
+#     A pairing port lives only as long as one "Pair device with pairing code" dialog.
+#     Caching it across attempts made the second and every later pairing dial a dead
+#     port from a previous session, get a live listener, and fail inside the SPAKE2
+#     exchange — reported as "Could not exchange peer info", which reads as bad crypto
+#     and is actually a closed dialog. Cache it and re-entering the code never works.
+_pair = wireless.split("fun pair(context: Context")[1].split("fun connect(context")[0]
+check(
+    "pairingPort = 0" in _pair,
+    "pair() must clear the cached pairing port before discovering: a pairing port is "
+    "only valid for one dialog and adbd closes it afterwards",
+)
+check(
+    'else if (pairingPort <= 0) {\n            discoverPairingPort' not in _pair,
+    "pair() must not guard discovery behind 'pairingPort <= 0' — that reuses the previous "
+    "session's port",
+)
+
+# 32. A SPAKE2 exchange failure is not a crypto-verdict.
+_cmp = wireless.split("private fun classify(")[1].split("private fun remedy(")[0]
+# The requirement is that the SPAKE2 case is EXCLUDED from the crypto branch, not that
+# the words appear somewhere. Checking presence passes on a mutation that drops the guard.
+check(
+    "exchange peer info" in _cmp,
+    "classify() must recognise the SPAKE2 failure at all",
+)
+check(
+    "!exchangeFailed && isCryptoFailure(msg)" in _cmp
+    or "exchangeFailed) && isCryptoFailure(msg)" in _cmp,
+    "classify() must exclude the SPAKE2 exchange failure from the crypto branch: a dead "
+    "pairing port produces the same error, and blaming the build sends every diagnosis "
+    "to the wrong layer",
+)
+
+# 33. The pairing failure must name the port it used.
+check(
+    "pairing port $target" in wireless,
+    "a pairing failure must report the port it dialled, or a stale port is "
+    "indistinguishable from a wrong code",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")
