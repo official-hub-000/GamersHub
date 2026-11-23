@@ -138,6 +138,11 @@ jobs:
       - name: Verify workflow structure
         run: python3 tools/check_workflows.py
 
+      # Compose constraints that compile but throw at run time. A LazyColumn inside the
+      # scrolling sheet frame is a crash the compiler cannot see.
+      - name: Verify Compose nesting and the pairing port handoff
+        run: python3 tools/check_compose_safety.py
+
       # The KernelSU backend is fetched here rather than committed: it is a ~10 MB GPL
       # binary that lives in somebody else's release, and a binary in git is a binary
       # nobody re-checks. The version is pinned, the archive hash is verified, and the

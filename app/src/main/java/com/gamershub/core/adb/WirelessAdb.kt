@@ -242,6 +242,32 @@ object WirelessAdb {
         }
     }
 
+    /**
+     * Finds the *connect* port after a successful pairing.
+     *
+     * Two things make this its own step rather than a reuse of the pre-pair attempt:
+     *
+     *  1. adbd starts advertising `_adb-tls-connect._tcp` only once the device is paired,
+     *     and it does so a moment later — so a discovery that failed before pairing
+     *     failing again immediately afterwards means nothing.
+     *  2. The connect port is a different number from the pairing port. They are separate
+     *     listed ports on the same Settings screen, so a user who types the pairing port
+     *     into the shell field gets a connection refused and concludes pairing failed.
+     *
+     * Returns the port, or 0 when nothing answered. Never throws.
+     */
+    fun rediscoverShellPort(context: Context): Int {
+        // Give adbd a moment to publish the service. This is a local network broadcast;
+        // 1.2 s covers the gap between the pairing tunnel closing and the daemon
+        // advertising, which is where the earlier attempts were losing it.
+        runCatching { Thread.sleep(1_200) }
+        if (discoverShellPort(context, 4_000) && shellPort > 0) return shellPort
+        // A second, shorter sweep: some stacks drop the first discovery after a pairing
+        // tunnel has just closed on the same NsdManager instance.
+        if (discoverShellPort(context, 3_000) && shellPort > 0) return shellPort
+        return 0
+    }
+
     private fun discoverShellPort(context: Context, timeoutMs: Long): Boolean {
         val port = NsdFinder(context, "_adb-tls-connect._tcp").find(timeoutMs)
         if (port != null) {
@@ -394,8 +420,24 @@ object WirelessAdb {
                     fail(Status.NOT_PAIRED, "adbd refused this identity. Use the pairing code from " +
                         "Settings › Wireless debugging › Pair device with pairing code.")
                 } else {
-                    fail(Status.OFF, "adbd did not answer on any known port. Turn Wireless debugging on, " +
-                        "read the port under IP address & port, and type it here.")
+                    // The toggle is on (checked above), so this is not "wireless is off".
+                    // Either discovery could not see the service or the port never got
+                    // recorded. Both are fixed by reading one number off the same Settings
+                    // screen, so say that rather than repeating the connection error.
+                    fail(
+                        Status.OFF,
+                        if (shellPort <= 0 && settingsPort(context) == null) {
+                            "Wireless debugging is on, but this app cannot see the port. " +
+                                "Either the network drops mDNS discovery, or the platform " +
+                                "has not recorded adb_wifi_port yet. Open Developer " +
+                                "options › Wireless debugging and type the port shown " +
+                                "under \"IP address & port\" into the port field — it is " +
+                                "a different number from the pairing port."
+                        } else {
+                            "adbd did not answer on any known port. Read the port under " +
+                                "IP address & port in Wireless debugging and type it here."
+                        }
+                    )
                 }
             }
         } catch (t: Throwable) {

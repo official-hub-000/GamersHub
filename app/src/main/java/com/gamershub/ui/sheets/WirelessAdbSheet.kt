@@ -440,9 +440,25 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
                                 refresh()
                                 return@launch
                             }
-                            busy = "Paired. Opening the shell…"
+                            busy = "Paired. Looking for the shell port…"
+                            // The connect port is NOT the pairing port, and adbd only
+                            // starts advertising it after pairing succeeds. Pairing
+                            // against a typed port and then calling connect() with no
+                            // port is what made a successful pairing end in "Could not
+                            // exchange peer info" — the connect step was guessing while
+                            // the pairing step knew the answer.
                             val conn = withContext(Dispatchers.IO) {
-                                WirelessAdb.connect(context)
+                                val found = WirelessAdb.rediscoverShellPort(context)
+                                busy = "Paired. Opening the shell…"
+                                if (found > 0) {
+                                    WirelessAdb.connect(context, portOverride = found)
+                                } else if (manual > 0) {
+                                    // Same number, used deliberately: if discovery is
+                                    // blocked the user may have typed the connect port.
+                                    WirelessAdb.connect(context, portOverride = manual)
+                                } else {
+                                    WirelessAdb.connect(context)
+                                }
                             }
                             busy = ""
                             message = if (conn.first) {

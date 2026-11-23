@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -448,11 +447,17 @@ fun AppSelectorSheet(
             FilterChip("Not Added", filter == AppFilter.NOT_ADDED) { filter = AppFilter.NOT_ADDED }
         }
         Spacer(Modifier.height(10.dp))
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.heightIn(max = 380.dp)
-        ) {
-            items(shown, key = { it.pkg }) { app ->
+        // A LazyColumn inside SheetFrame CRASHES. SheetFrame is a Column with
+        // verticalScroll, so its children are measured with an infinite maximum height,
+        // and a lazy list refuses that: "Vertically scrollable component was measured
+        // with an infinity maximum height constraints, which is disallowed." heightIn
+        // does not help — it bounds the list's own size, not what it is measured with.
+        //
+        // A plain Column is correct here: the rows are already clipped by the frame, the
+        // whole sheet scrolls as one surface, and filtering keeps the count small. This
+        // is the exception that reached users as "A step broke — GamersHub reopened".
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            shown.forEach { app ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
