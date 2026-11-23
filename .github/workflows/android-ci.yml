@@ -133,6 +133,11 @@ jobs:
       - name: Verify licence obligations for bundled components
         run: python3 tools/check_licenses.py
 
+      # A malformed workflow does not fail loudly: the run is created, no jobs start,
+      # and GitHub reports a bare failure with no logs. That happened once already.
+      - name: Verify workflow structure
+        run: python3 tools/check_workflows.py
+
       # The KernelSU backend is fetched here rather than committed: it is a ~10 MB GPL
       # binary that lives in somebody else's release, and a binary in git is a binary
       # nobody re-checks. The version is pinned, the archive hash is verified, and the

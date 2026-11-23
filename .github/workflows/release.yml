@@ -180,6 +180,11 @@ jobs:
       - name: Verify licence obligations for bundled components
         run: python3 tools/check_licenses.py
 
+      # A malformed workflow does not fail loudly: the run is created, no jobs start,
+      # and GitHub reports a bare failure with no logs. That happened once already.
+      - name: Verify workflow structure
+        run: python3 tools/check_workflows.py
+
       - name: Build signed release APK
         run: |
           set -o pipefail
@@ -202,8 +207,6 @@ jobs:
             tail -40 build.log || true
           } > verify-report.txt
 
-      # Hard gate: the embedded DFRoot payload must actually be in the APK.
-      # externalNativeBuild proves the .so compiled; this proves it shipped.
       # The release must actually carry the backend. CI passes without it — correctly,
       # because the app degrades to asking for an installed manager — which means a
       # missing ksud is invisible everywhere except on the user's device.
@@ -227,7 +230,9 @@ jobs:
           sha256sum /tmp/packed-ksud
           head -c 4 /tmp/packed-ksud | od -An -c
 
-      - name: Verify embedded DFRoot payload is packaged      - name: Verify embedded DFRoot payload is packaged
+      # Hard gate: the embedded DFRoot payload must actually be in the APK.
+      # externalNativeBuild proves the .so compiled; this proves it shipped.
+      - name: Verify embedded DFRoot payload is packaged
         run: |
           set -e
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
