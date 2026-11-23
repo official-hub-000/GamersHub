@@ -399,11 +399,14 @@ object Shell {
         err.join(timeoutMs)
         val finished = runCatching { process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
             .getOrDefault(true)
-        if (!finished) {
+        if (finished) {
+            out.toString()
+        } else {
+            // Expression body, so no `return`: a cut-short read is reported with a
+            // non-zero sentinel rather than looking like a complete, successful output.
             runCatching { process.destroy() }
-            return out.toString() + "\n__GH_EXIT__=124 timed out after ${timeoutMs}ms\n"
+            out.toString() + "\n__GH_EXIT__=124 timed out after ${timeoutMs}ms\n"
         }
-        out.toString()
     } catch (t: Throwable) {
         t.message ?: ""
     }
