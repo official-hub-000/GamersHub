@@ -583,6 +583,49 @@ check(
     "the licence gate must run in CI",
 )
 
+# 29. Wireless debugging must be checked before dialling anything.
+#     adb_wifi_port is written when the toggle comes on and is NOT cleared when it goes
+#     off, so with the toggle off the app dialled a stale port and reported the failure
+#     from inside the TLS handshake: "Could not exchange peer info ... Turn Wireless
+#     debugging off and on". Accurate about the wrong layer, and it sent every diagnosis
+#     towards the parser instead of the switch.
+check(
+    "fun wirelessDebuggingEnabled(" in wireless,
+    "WirelessAdb must check adb_wifi_enabled: a stale adb_wifi_port makes a dead port "
+    "indistinguishable from a live one until something answers",
+)
+_conn = wireless.split("fun connect(context: Context")[1].split("private fun tryPort")[0]
+check(
+    "wirelessDebuggingEnabled(context) == false" in _conn,
+    "connect() must refuse with the real reason when the toggle is off, before dialling",
+)
+check(
+    "wirelessDebuggingEnabled" in wireless.split("fun diagnostics")[1].split("fun ")[0],
+    "the STAGES block must report the toggle: it is the single fact that explains the "
+    "most confusing failure this screen has shown",
+)
+
+# 30. A crash record must survive the process that is dying to write it.
+sw = read(SRC / "core/StartupWatch.kt")
+_mark = sw.split("fun markPending")[1].split("fun onLaunch")[0]
+check(
+    ".commit()" in _mark,
+    "markPending must commit synchronously: apply() writes asynchronously, and this runs "
+    "on the way to the process being killed, which is the one moment the write is least "
+    "likely to finish",
+)
+check(
+    ".apply()" not in _mark,
+    "markPending must not use apply() — the record exists only to survive process death",
+)
+_shell = read(SRC / "ui/RootShell.kt")
+check(
+    "autoPopupEnabled" in _shell
+    and "StartupWatch.resolve(context)\n                return@LaunchedEffect" not in _shell,
+    "turning off the auto-popup must not delete the crash record: a preference about "
+    "being interrupted is not permission to discard what broke",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

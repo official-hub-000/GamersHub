@@ -72,7 +72,12 @@ object StartupWatch {
                 .putString(KEY_VERSION, BuildConfig.VERSION_NAME)
                 // A new crash gets a fresh offer count, even if the last one gave up.
                 .putInt(KEY_OFFERED_AT, 0)
-                .apply()
+                // commit(), not apply(). apply() writes to disk asynchronously, and this
+                // runs on the way to the process being killed — the one moment the write
+                // is least likely to complete. The record exists solely to survive that
+                // kill, so an async write here is the bug: the crash happens, the flag is
+                // never persisted, and the next launch has nothing to offer.
+                .commit()
         }
     }
 

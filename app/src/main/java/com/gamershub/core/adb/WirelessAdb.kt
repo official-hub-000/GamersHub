@@ -150,6 +150,12 @@ object WirelessAdb {
     fun diagnostics(context: Context): List<String> = buildList {
         add("status        ${status.name.lowercase()} — ${statusLabel()}")
         add("wireless      ${wirelessSupported()} (needs API 29+; this is ${android.os.Build.VERSION.SDK_INT})")
+        // The single fact that explains the most confusing failure this screen has shown.
+        add("debug toggle  ${when (wirelessDebuggingEnabled(context)) {
+            true -> "on"
+            false -> "OFF — no adbd can answer"
+            null -> "not readable"
+        }}")
         add("nearby perm   ${nearbyGranted(context)}")
         add("settings port ${settingsPort(context) ?: "not readable"}")
         add("remembered    ${rememberedPort(context).takeIf { it > 0 } ?: "none"}")
@@ -327,6 +333,20 @@ object WirelessAdb {
             return false to lastError
         }
 
+        // Say the real reason before dialling anything. With the toggle off the platform
+        // still reports the last port it used, so the attempt below would dial a dead
+        // port and fail inside the TLS handshake with "Could not exchange peer info" —
+        // accurate about the wrong layer.
+        if (wirelessDebuggingEnabled(context) == false) {
+            return fail(
+                Status.OFF,
+                "Wireless debugging is switched off, so there is no adbd to talk to. " +
+                    "Developer options › Wireless debugging › turn it on, then connect. " +
+                    "(The port this app can read is left over from last time and is not " +
+                    "live — that is why it looked like something was there.)"
+            )
+        }
+
         // The fix for the whole class of "it says Not paired but I am paired": the old
         // connection object must die before connect() is called, or the manager's
         // `if (isConnected()) return false;` swallows the attempt without dialing.
@@ -475,6 +495,30 @@ object WirelessAdb {
     private fun settingsPort(context: Context): Int? = runCatching {
         android.provider.Settings.Global.getInt(context.contentResolver, "adb_wifi_port", 0)
             .takeIf { it > 0 }
+    }.getOrNull()
+
+    /**
+     * Whether Wireless debugging is switched on, as the platform records it.
+     *
+     * Returns null when the setting is not readable, which is not the same as "off" and
+     * must not be reported as such.
+     *
+     * ## Why this exists
+     *
+     * This was the missing check behind the most confusing report the app has produced:
+     * "adbd did not answer: Could not exchange peer info" while the user was entering a
+     * pairing code. Wireless debugging had been switched off, so `adb_wifi_port` was
+     * stale — the setting is written when the toggle comes on and is NOT cleared when it
+     * goes off. [settingsPort] therefore returned a port nothing was listening on,
+     * [candidatePorts] offered it first, and the failure surfaced from inside the TLS
+     * handshake as a peer-info error. Every symptom pointed at the code that parses that
+     * error, and none of them was the cause.
+     *
+     * A stale port is indistinguishable from a live one until something answers, so this
+     * is checked before dialling rather than inferred afterwards.
+     */
+    fun wirelessDebuggingEnabled(context: Context): Boolean? = runCatching {
+        android.provider.Settings.Global.getInt(context.contentResolver, "adb_wifi_enabled", 0) == 1
     }.getOrNull()
 
     private fun verify(manager: AdbConnectionManager): Boolean =

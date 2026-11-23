@@ -196,7 +196,10 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             // crash" is one setting, not two. Read on a coroutine so a cold start is not
             // spent on a prefs read before the first frame.
             if (!com.gamershub.core.IssueReporter.autoPopupEnabled(context)) {
-                com.gamershub.core.StartupWatch.resolve(context)
+                // Do NOT resolve. Turning off the auto-popup is a preference about being
+                // interrupted, not permission to delete the record of what broke. The
+                // previous behaviour threw the crash away here, so a user who had ever
+                // turned the popup off could never report a startup failure at all.
                 return@LaunchedEffect
             }
             val pending = withContext(Dispatchers.IO) {
