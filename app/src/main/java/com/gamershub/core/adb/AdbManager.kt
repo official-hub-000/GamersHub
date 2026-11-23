@@ -273,6 +273,13 @@ internal object AdbExec {
         worker.isDaemon = true
         worker.start()
         worker.join(timeoutMs)
-        return out.toString()
+        if (worker.isAlive) {
+            // Cut short. Return what arrived PLUS a sentinel with a non-zero code, so the
+            // caller sees a failure rather than a partial read that looks like a
+            // successful command with truncated output.
+            val partial = synchronized(out) { out.toString() }
+            return partial + "\n$EXIT_TOKEN=124 timed out after ${timeoutMs}ms\n"
+        }
+        return synchronized(out) { out.toString() }
     }
 }

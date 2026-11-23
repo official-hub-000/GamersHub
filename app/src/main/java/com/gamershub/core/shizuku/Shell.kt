@@ -86,12 +86,22 @@ object Shell {
         }
     }
 
+    /**
+     * True when some transport could carry a command.
+     *
+     * Root is included. It was missing here, so a rooted-only device — no Shizuku, no
+     * daemon, no wireless — answered "not running" and every status surface in the app
+     * said "Shizuku not running" while uid 0 was in fact available.
+     */
     fun running(): Boolean = try {
-        com.gamershub.core.adb.ShellDaemon.alive ||
+        com.gamershub.core.root.RootShell.ready() ||
+            com.gamershub.core.adb.ShellDaemon.alive ||
             com.gamershub.core.adb.WirelessAdb.connected() ||
             Shizuku.pingBinder()
     } catch (_: Throwable) {
-        com.gamershub.core.adb.ShellDaemon.alive || com.gamershub.core.adb.WirelessAdb.connected()
+        com.gamershub.core.root.RootShell.ready() ||
+            com.gamershub.core.adb.ShellDaemon.alive ||
+            com.gamershub.core.adb.WirelessAdb.connected()
     }
 
     fun granted(): Boolean = try {
@@ -117,11 +127,21 @@ object Shell {
         else -> Status.CONNECTED
     }
 
-    fun statusLabel(): String = when (status()) {
-        Status.CONNECTED -> "Connected"
-        Status.BINDING -> "Connecting"
-        Status.NO_PERMISSION -> "Permission needed"
-        Status.NOT_RUNNING -> "Shizuku not running"
+    /**
+     * Names the live transport rather than naming Shizuku regardless.
+     *
+     * The label said "Shizuku not running" on every device, including ones where
+     * wireless debugging or root was carrying the shell — which makes the transport
+     * panel actively misleading about what to fix.
+     */
+    fun statusLabel(): String = when {
+        com.gamershub.core.root.RootShell.ready() -> "Root"
+        com.gamershub.core.adb.ShellDaemon.alive -> "GamersHub daemon"
+        com.gamershub.core.adb.WirelessAdb.connected() -> "Wireless debugging"
+        status() == Status.CONNECTED -> "Shizuku"
+        status() == Status.BINDING -> "Connecting"
+        status() == Status.NO_PERMISSION -> "Permission needed"
+        else -> "No shell — pair wireless debugging, start the daemon, or run Shizuku"
     }
 
     /** Binds the user service when possible. Safe to call on every resume. */
@@ -198,13 +218,13 @@ object Shell {
             appContext = it
         }
 
-    fun exec(command: String): String? {
+    fun exec(command: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): String? {
         ctx()
         // Root first: when the engine is on and root was granted, every existing
         // Shizuku call site transparently gets the deeper tree (system-only paths,
         // property writes, pkgs that shell cannot touch).
         if (com.gamershub.core.root.RootShell.ready()) {
-            com.gamershub.core.root.RootShell.run(command)?.let { out ->
+            com.gamershub.core.root.RootShell.run(command, timeoutMs)?.let { out ->
                 record("$ " + command.take(70) + "  →  root")
                 return out
             }
@@ -213,7 +233,7 @@ object Shell {
         // wireless debugging switched off. This is the transport that makes the
         // privilege outlive the connection that created it.
         if (com.gamershub.core.adb.ShellDaemon.alive) {
-            com.gamershub.core.adb.ShellDaemon.exec(command)?.let { out ->
+            com.gamershub.core.adb.ShellDaemon.exec(command, timeoutMs)?.let { out ->
                 record("$ " + command.take(70) + "  →  daemon")
                 return out
             }
@@ -224,12 +244,12 @@ object Shell {
         // has been force-stopped.
         if (com.gamershub.core.adb.WirelessAdb.connected()) {
             val ctx = ctx() ?: return null
-            com.gamershub.core.adb.WirelessAdb.exec(ctx, command)?.let { out ->
+            com.gamershub.core.adb.WirelessAdb.exec(ctx, command, timeoutMs)?.let { out ->
                 record("$ " + command.take(70) + "  →  wireless adb")
                 return out
             }
         }
-        directExec(command)?.let { out ->
+        directExec(command, timeoutMs)?.let { out ->
             record("$ " + command.take(70) + "  →  ok")
             return out
         }
@@ -280,7 +300,7 @@ object Shell {
      * permission; the SDK marks it as restricted, so it is reached through
      * reflection instead of a direct call.
      */
-    private fun directExec(command: String): String? {
+    private fun directExec(command: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): String? {
         if (!granted()) return null
         val method = newProcess ?: return null
         return try {
@@ -300,9 +320,9 @@ object Shell {
             reader.start()
             err.start()
             // Hard cap: a wedged shell must never freeze the caller (or trigger an ANR).
-            reader.join(1500)
-            err.join(1500)
-            val finished = runCatching { process.waitFor(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
+            reader.join(timeoutMs)
+            err.join(timeoutMs)
+            val finished = runCatching { process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
                 .getOrDefault(true)
             if (!finished) runCatching { process.destroy() }
             out.toString()
@@ -323,12 +343,23 @@ object Shell {
         }.getOrNull()
     }
 
-    /** Execute and report success (exit code 0 parsed from output). */
-    fun ok(command: String): Boolean {
-        val out = exec(command) ?: return false
-        val match = Regex("__GH_EXIT__=(-?\\d+)").find(out)
-        return match == null || match.groupValues[1] == "0"
+    /**
+     * Execute and report success.
+     *
+     * The exit code is the only evidence of success, so a missing one is a failure.
+     * This used to return **true** when the sentinel was absent — which is precisely
+     * what a timed-out or killed command looks like, so a transport that silently gave
+     * up reported success to every caller. Each transport now returns its exit code
+     * even on timeout (with a note), so an absent sentinel really is anomalous.
+     */
+    fun ok(command: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Boolean {
+        val out = exec(command, timeoutMs) ?: return false
+        val match = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return false
+        return match.groupValues[1] == "0"
     }
+
+    /** One timeout for every transport, so behaviour cannot depend on which is live. */
+    const val DEFAULT_TIMEOUT_MS = 8_000L
 
     /** True when privileged commands can actually run right now. */
     fun available(): Boolean = granted() || binder != null ||
@@ -348,8 +379,15 @@ object Shell {
         else -> lastError.ifBlank { "shell rejected the command" }
     }
 
-    /** Last resort: plain app-side exec (no privileges). */
-    fun appExec(command: String): String = try {
+    /**
+     * Last resort: plain app-side exec (no privileges).
+     *
+     * The cap used to be a bare 1.5 s, which is far below the timeout every other
+     * transport honours — so the same command could succeed privileged and appear to
+     * produce nothing unprivileged. It now takes the same timeout, and says when it was
+     * cut short instead of returning a partial read that looks complete.
+     */
+    fun appExec(command: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): String = try {
         val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
         val out = StringBuilder()
         // readText() on a wedged process blocks forever — drain on threads with a cap.
@@ -357,11 +395,14 @@ object Shell {
         val err = Thread { runCatching { process.errorStream.bufferedReader().forEachLine { out.appendLine(it) } } }
         reader.start()
         err.start()
-        reader.join(1500)
-        err.join(1500)
-        val finished = runCatching { process.waitFor(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
+        reader.join(timeoutMs)
+        err.join(timeoutMs)
+        val finished = runCatching { process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
             .getOrDefault(true)
-        if (!finished) runCatching { process.destroy() }
+        if (!finished) {
+            runCatching { process.destroy() }
+            return out.toString() + "\n__GH_EXIT__=124 timed out after ${timeoutMs}ms\n"
+        }
         out.toString()
     } catch (t: Throwable) {
         t.message ?: ""

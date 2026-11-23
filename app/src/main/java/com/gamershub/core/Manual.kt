@@ -139,7 +139,8 @@ object Manual {
             section = "Start Here",
             title = "Wireless debugging",
             aliases = "cordless debug pair code port mdns adb wifi no shizuku nearby devices",
-            summary = "The Shizuku-free door. Pairs directly with Android's own adb daemon over Wi-Fi.",
+            summary = "Shizuku's features without Shizuku: pairs directly with Android's own adb daemon " +
+                "over Wi-Fi, then leaves a shell running that does not need the connection.",
             steps = listOf(
                 "Settings ▸ Developer options ▸ Wireless debugging ▸ Pair device with pairing code.",
                 "Leave that dialog open — it shows a six-digit code and a port.",
@@ -148,7 +149,9 @@ object Manual {
                 "Auto-detect uses mDNS, then falls back to adbd's fixed port — it no longer reports \"not on\" just because mDNS is quiet.",
                 "On Android 13+ allow Nearby devices when asked — without it discovery cannot answer.",
                 "If the port changed (wireless debugging toggled, or the phone rebooted), tap Connect again: the app drops the dead port and rediscovers.",
-                "After a successful pair the sheet connects immediately. Pressing CONNECT again after a drop is always safe — the old connection is thrown away before every attempt, which is what used to keep a dead link reporting itself as live."
+                "After a successful pair the sheet connects immediately, and it starts the background shell at the same time so privileges survive Wireless debugging being switched off.",
+                "Pressing CONNECT again after a drop is always safe — the old connection is thrown away before every attempt, which is what used to keep a dead link reporting itself as live.",
+                "If the link drops on its own, the next privileged action reconnects once by itself. Only if that fails do you need to come back to this sheet."
             ),
             note = "A failed pair is almost always a closed dialog or a stale code. A failed *connect* is usually a changed port — reopen Wireless debugging to read the current port. If the sheet says \"Pairing unsupported here\", neither applies: the phone is fine and the app's TLS stack could not export keying material, which is a build fault to report, not something to re-pair or reboot for.",
             sheet = "wireless",

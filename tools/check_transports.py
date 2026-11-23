@@ -238,6 +238,147 @@ check(
     "DfRoot.status(): must report whether the embedded payload can actually run",
 )
 
+# ============================ transport parity ===============================
+# "The same features as Shizuku" is a testable property even though the transports are
+# different: every call site goes through one surface, and that surface must behave
+# identically no matter which transport answers.
+
+channel = strip_comments(read(SRC / "core/Channel.kt"))
+
+# 11. A caller's timeout must reach the transport. Channel.exec used to forward it to
+#     root only, so an 8 s request became the transport's own default elsewhere.
+check(
+    "Shell.exec(command, timeoutMs)" in channel,
+    "Channel.exec() must forward its timeoutMs to Shell.exec on the daemon, wireless and "
+    "Shizuku branches; discarding it makes the same command behave differently per "
+    "transport.",
+)
+
+# 12. A missing exit code is a failure, not a success.
+check(
+    'find(out) ?: return true' not in channel,
+    "Channel.ok() must not treat a missing __GH_EXIT__ sentinel as success — that is "
+    "exactly what a timed-out command looks like.",
+)
+check(
+    'find(out) ?: return false' in channel,
+    "Channel.ok() must require the exit code",
+)
+ok_body = ""
+m = re.search(r"fun ok\(", shell)
+if m:
+    i = shell.find("{", m.end() - 1)
+    depth = 0
+    for j in range(i, len(shell)):
+        if shell[j] == "{":
+            depth += 1
+        elif shell[j] == "}":
+            depth -= 1
+            if depth == 0:
+                ok_body = shell[i : j + 1]
+                break
+check(ok_body != "", "Shell.ok(): could not read the body")
+# Must be the exit-code lookup specifically. "?: return false" alone also matches the
+# `exec(...) ?: return false` line above it, which made this rule pass on the exact bug
+# it exists to catch.
+check(
+    re.search(r"find\(out\)\s*\?:\s*return false", ok_body) is not None,
+    "Shell.ok() must require the exit code: a missing __GH_EXIT__ sentinel is exactly "
+    "what a timed-out command looks like, and returning true reported it as success.",
+)
+check(
+    re.search(r"find\(out\)\s*\?:\s*return true", ok_body) is None,
+    "Shell.ok() must not default a missing exit code to success",
+)
+
+# 13. One default timeout for every transport.
+check(
+    "DEFAULT_TIMEOUT_MS" in shell,
+    "Shell: expected a single DEFAULT_TIMEOUT_MS so no transport has its own hard-coded "
+    "cut-off (Shizuku's was 1.5 s while wireless was 12 s)",
+)
+check(
+    "join(1500)" not in shell,
+    "Shell: the hard-coded 1.5 s join cut long commands off on the Shizuku path only",
+)
+
+# 14. Wireless must recover like Shizuku does.
+check(
+    "private fun reconnect(" in wireless,
+    "WirelessAdb: must reconnect when a stream dies. Shizuku rebinds on its next call; "
+    "this transport used to mark itself OFF and answer null for the rest of the process.",
+)
+exec_body = ""
+m = re.search(r"fun exec\(context: Context", wireless)
+if m:
+    i = wireless.find("{", m.end() - 1)
+    depth = 0
+    for j in range(i, len(wireless)):
+        if wireless[j] == "{":
+            depth += 1
+        elif wireless[j] == "}":
+            depth -= 1
+            if depth == 0:
+                exec_body = wireless[i : j + 1]
+                break
+check(
+    "if (!connected() && !reconnect(context)) return null" in exec_body,
+    "WirelessAdb.exec() must attempt a reconnect in its entry guard — merely calling "
+    "reconnect() somewhere later still answers null for every caller once the link drops.",
+)
+check(
+    "RECONNECT_BACKOFF_MS" in wireless,
+    "WirelessAdb: a reconnect storm on a dead network is worse than the drop — expected "
+    "a backoff constant",
+)
+
+# 15. A live connection must leave a service behind that does not need it.
+check(
+    "ensureDaemon(context)" in wireless,
+    "WirelessAdb: a successful connect must CALL ensureDaemon(). Without it, privilege "
+    "ends when the connection does — which is the one architectural property Shizuku "
+    "has that a bare ADB link does not.",
+)
+check(
+    re.search(r"ensureDaemon\(context\)\s*\n\s*return Triple\(true", wireless) is not None,
+    "WirelessAdb: ensureDaemon must be called on the success path of tryPort(), right "
+    "before the successful result is returned",
+)
+check(
+    "daemon_enabled" in wireless,
+    "WirelessAdb.ensureDaemon must respect the user's daemon_enabled choice",
+)
+
+# 16. Status must not claim "Shizuku" on devices that have never had it.
+check(
+    '"Shizuku not running"' not in shell,
+    "Shell.statusLabel() must name the live transport instead of reporting Shizuku on a "
+    "device driven by wireless debugging, the daemon or root",
+)
+check(
+    "fun running()" in shell and "RootShell.ready()" in shell,
+    "Shell.running() must include root; it is a transport like the others",
+)
+
+# 12b. Root's ok() must agree — it is the fourth transport.
+rootshell = strip_comments(read(SRC / "core/root/RootShell.kt"))
+check(
+    re.search(r"find\(out\)\s*\?:\s*return true", rootshell) is None,
+    "RootShell.ok() must not default a missing exit code to success — it is the fourth "
+    "transport and has to behave like the other three",
+)
+
+# 17. Every transport that carries a command must be reachable from the same surface.
+for name, needle in (
+    ("root", "RootShell.run"),
+    ("daemon", "ShellDaemon.exec"),
+    ("wireless", "WirelessAdb.exec"),
+):
+    check(
+        needle in shell,
+        f"Shell.exec must route to the {name} transport",
+    )
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

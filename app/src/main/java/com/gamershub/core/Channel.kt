@@ -135,18 +135,24 @@ object Channel {
      */
     fun exec(context: Context, command: String, timeoutMs: Long = 8_000): String? {
         if (!Engine.isOn && !Engine.isStopping) return null
+        // The timeout is forwarded on every branch. It used to be discarded three times
+        // out of four — a caller asking for 8 s silently got Shell's default on the
+        // daemon, wireless and Shizuku paths, and on Shizuku it got a hard-coded 1.5 s,
+        // so the same command could succeed on one transport and "fail" on another.
         return when (kind()) {
             Kind.ROOT -> RootShell.run(command, timeoutMs)
-            Kind.DAEMON -> Shell.exec(command)     // Shell routes to the daemon socket
-            Kind.WIRELESS -> Shell.exec(command)   // Shell routes to the live wireless link
-            Kind.SHIZUKU -> Shell.exec(command)
+            Kind.DAEMON -> Shell.exec(command, timeoutMs)     // routes to the daemon socket
+            Kind.WIRELESS -> Shell.exec(command, timeoutMs)   // routes to the wireless link
+            Kind.SHIZUKU -> Shell.exec(command, timeoutMs)
             Kind.NONE -> null
         }
     }
 
-    fun ok(context: Context, command: String): Boolean {
-        val out = exec(context, "$command; echo __GH_EXIT__=$?") ?: return false
-        val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return true
+    fun ok(context: Context, command: String, timeoutMs: Long = 8_000): Boolean {
+        val out = exec(context, "$command; echo __GH_EXIT__=$?", timeoutMs) ?: return false
+        // A missing exit code is a failure. Returning true here meant a timed-out
+        // command was reported as success to every caller that used ok().
+        val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return false
         return m.groupValues[1] == "0"
     }
 

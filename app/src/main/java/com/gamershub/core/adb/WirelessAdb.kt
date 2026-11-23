@@ -378,6 +378,7 @@ object WirelessAdb {
                     .putInt("wireless_port", port)
                     .apply()
             }
+            ensureDaemon(context)
             return Triple(true, out.trim(), true)
         }
         return Triple(
@@ -468,21 +469,116 @@ object WirelessAdb {
         }
     }
 
-    /** Runs a command over the live connection. Null when there is no connection. */
+    /**
+     * Runs a command over the live connection, reconnecting once if it went away.
+     *
+     * Shizuku self-heals: when its server restarts, the next call rebinds and the
+     * command runs. This transport used to mark itself OFF on the first dead stream and
+     * then answer null for the rest of the process, so a single drop — a screen-off
+     * idle timeout, a Wi-Fi handover, adbd recycling — silently disabled every
+     * privileged feature until the user found the sheet and tapped Connect. Same
+     * guarantee now: one transparent reconnect, and only then a failure.
+     */
     fun exec(context: Context, command: String, timeoutMs: Long = 12_000): String? {
         attached(context)
-        if (!connected()) return null
+        if (!connected() && !reconnect(context)) return null
         val manager = AdbConnectionManager.get(context)
         val out = AdbExec.run(manager, command, timeoutMs)
-        if (out == null) {
-            // The stream died underneath us. Clear the flag now rather than letting a
-            // dead connection keep answering `connected()` for the rest of the session.
+        if (out != null) return out
+
+        // The stream died underneath us. Drop the dead link and try once to restore it;
+        // this is the same recovery Shizuku performs by rebinding its binder.
+        status = Status.OFF
+        teardownQuietly(context)
+        if (!reconnect(context)) {
+            lastError = "the connection dropped and could not be restored — open " +
+                "Wireless debugging and tap Connect"
+            return null
+        }
+        val retried = AdbExec.run(AdbConnectionManager.get(context), command, timeoutMs)
+        if (retried == null) {
             status = Status.OFF
-            lastError = "the connection dropped — tap Connect to restore it"
+            lastError = "the connection dropped again during the retry — check that " +
+                "Wireless debugging is still on"
             teardownQuietly(context)
         }
-        return out
+        return retried
     }
+
+    /**
+     * Leaves a shell behind that does not need this connection.
+     *
+     * This is the one architectural property Shizuku has that a bare ADB link does not:
+     * Shizuku's server keeps running after the thing that started it goes away. Pairing
+     * over wireless used to give exactly a connection — switch wireless debugging off and
+     * every privileged feature stopped, which is the difference users notice.
+     *
+     * [com.gamershub.core.adb.ShellDaemon] is the same shape: it is started once as uid
+     * 2000 via `app_process`, then serves over a local socket with no ADB involved. It is
+     * started here, right after the first successful connect, and only if the user has
+     * not switched it off — it is their phone, so `daemon_enabled` is respected rather
+     * than forced.
+     *
+     * Best-effort by design: a device that cannot spawn it still has a working wireless
+     * connection, and failing the connect over this would be worse.
+     */
+    private fun ensureDaemon(context: Context) {
+        runCatching {
+            com.gamershub.core.adb.ShellDaemon.attached(context)
+            if (com.gamershub.core.adb.ShellDaemon.alive || com.gamershub.core.adb.ShellDaemon.ping()) {
+                return@runCatching
+            }
+            val prefs = context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+            // Absent means "not decided yet": start it, because that is the behaviour that
+            // matches Shizuku. Explicitly false means the user turned it off — leave it.
+            if (prefs.contains("daemon_enabled") && !prefs.getBoolean("daemon_enabled", true)) {
+                return@runCatching
+            }
+            com.gamershub.core.adb.ShellDaemon.start(context)
+        }
+    }
+
+    /** Guards against a stack of callers all reconnecting at once. */
+    @Volatile
+    private var reconnecting = false
+
+    /** Last time a reconnect was attempted, so a dead network is not hammered. */
+    @Volatile
+    private var lastReconnect = 0L
+
+    /**
+     * Restores the connection if this app was previously authorised.
+     *
+     * Deliberately silent and cheap when it cannot: the caller reports the failure. It
+     * only fires for an identity that has already paired, because pairing needs the code
+     * from Settings and this is not the place to ask for one.
+     */
+    private fun reconnect(context: Context): Boolean {
+        val prefs = runCatching {
+            context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
+        }.getOrNull() ?: return false
+        if (!prefs.getBoolean("wireless_enabled", false)) return false
+        val now = System.currentTimeMillis()
+        if (now - lastReconnect < RECONNECT_BACKOFF_MS) return false
+        if (reconnecting) return false
+        reconnecting = true
+        return try {
+            lastReconnect = now
+            // connect() tears the old connection down first, which is what makes this
+            // safe to call on a link that is only half dead.
+            val res = connect(context)
+            if (!res.first) lastError = res.second
+            res.first
+        } catch (t: Throwable) {
+            lastError = t.message ?: "reconnect failed"
+            false
+        } finally {
+            reconnecting = false
+        }
+    }
+
+    /** How long to wait before trying to restore a dropped link again. */
+    private const val RECONNECT_BACKOFF_MS = 3_000L
 
     /**
      * Drops the connection but keeps the identity.

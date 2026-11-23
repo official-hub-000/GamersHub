@@ -397,9 +397,17 @@ object RootShell {
         return out
     }
 
-    fun ok(command: String): Boolean {
-        val out = run("$command; echo __GH_EXIT__=$?") ?: return false
-        val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return true
+    /**
+     * Runs [command] and reports whether it succeeded.
+     *
+     * A missing exit code is a failure, for the same reason as
+     * [com.gamershub.core.shizuku.Shell.ok]: the one-shot fallback in [run] applies its
+     * own timeout, and a command it cut short returns partial output with no sentinel.
+     * Returning true there reported a timeout as success.
+     */
+    fun ok(command: String, timeoutMs: Long = 8_000): Boolean {
+        val out = run("$command; echo __GH_EXIT__=$?", timeoutMs) ?: return false
+        val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return false
         return m.groupValues[1] == "0"
     }
 
