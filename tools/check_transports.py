@@ -431,6 +431,37 @@ check(
     "the wireless sheet must display WirelessAdb.diagnostics(context)",
 )
 
+# 22. The marker generator must actually write the path, and the reader must find it.
+#     The first version chained `cmake -E echo ... > f` and `>>` in add_custom_command,
+#     which runs without a shell — the redirects were literal arguments, the marker
+#     shipped empty, layoutMatches() was false and DFRoot refused to run on every device.
+pathmarker = read(JNI / "pathmarker.c")
+check(
+    "fopen(out" in pathmarker and "fwrite" in pathmarker,
+    "pathmarker must write the marker with fopen/fwrite; a chain of cmake -E commands "
+    "with shell redirects silently produced an empty marker",
+)
+check(
+    "'%s/bootstrap\\n'" in pathmarker or "%s/bootstrap" in pathmarker,
+    "pathmarker must write <payload-dir>/bootstrap",
+)
+check(
+    ">>" not in cmake and "-E echo" not in cmake,
+    "CMakeLists must not build the marker with shell redirects: add_custom_command does "
+    "not run through a shell, so the redirects become literal arguments and the marker is "
+    "empty while the build still succeeds",
+)
+check(
+    "pathmarker_tool" in cmake,
+    "CMakeLists must compile the marker generator and run it",
+)
+# The reader must scan the binary for the path, not read the file as text.
+check(
+    "/data/[A-Za-z0-9_./-]+/bootstrap" in dfpaths,
+    "DfPaths.compiledBootstrapPath must scan the marker for an absolute path; readText() "
+    "on a binary returns mojibake with the path buried inside it",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

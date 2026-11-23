@@ -114,11 +114,22 @@ object DfPaths {
     fun layoutMarker(context: Context): File =
         File(context.applicationInfo.nativeLibraryDir, "libdfroot-path.so")
 
-    /** What the payload was compiled for, or null when it does not declare it. */
+    /**
+     * What the payload was compiled for, or null when it does not declare it.
+     *
+     * The marker is a 64-byte ELF header followed by the path as plain text, so this
+     * scans for an absolute path rather than reading the file as text — `readText()` on a
+     * binary returns mojibake with the path buried in it, and an earlier version of this
+     * compared that whole blob against the expected directory, which could never match.
+     */
     fun compiledBootstrapPath(context: Context): String? = runCatching {
         val f = layoutMarker(context)
         if (!f.exists()) return@runCatching null
-        f.readText().trim().takeIf { it.isNotEmpty() }
+        val text = String(f.readBytes(), Charsets.ISO_8859_1)
+        // Every absolute path that ends in /bootstrap, first one wins.
+        Regex("/data/[A-Za-z0-9_./-]+/bootstrap").findAll(text)
+            .map { it.value }
+            .firstOrNull()
     }.getOrNull()
 
     /** True when the app and the embedded payload agree on where the payload lives. */
