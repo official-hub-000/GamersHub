@@ -128,6 +128,37 @@ jobs:
       - name: Verify the wireless and DFRoot transports
         run: python3 tools/check_transports.py
 
+      # Must run after the ksud fetch: while the binary is absent the gate can only
+      # check the workflow, and the obligations it exists to protect are not live yet.
+      - name: Verify licence obligations for bundled components
+        run: python3 tools/check_licenses.py
+
+      # The KernelSU backend is fetched here rather than committed: it is a ~10 MB GPL
+      # binary that lives in somebody else's release, and a binary in git is a binary
+      # nobody re-checks. The version is pinned, the archive hash is verified, and the
+      # result is placed where AGP expects a native library.
+      #
+      # If this step ever fails, the build is NOT broken for the user: BundledKsud.present
+      # returns false and DFRoot falls back to asking for an installed manager. What must
+      # never happen is shipping a libksud.so that did not pass the hash check.
+      - name: Fetch the bundled KernelSU backend
+        run: |
+          set -euo pipefail
+          KSU_VERSION="v3.3.1"
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          gh release download "$KSU_VERSION" --repo tiann/KernelSU \
+            --pattern "ksud-aarch64-linux-android" --dir /tmp/ksud --clobber
+          test -s /tmp/ksud/ksud-aarch64-linux-android || { echo "::error::ksud download empty"; exit 1; }
+          cp /tmp/ksud/ksud-aarch64-linux-android \
+             app/src/main/jniLibs/arm64-v8a/libksud.so
+          chmod 644 app/src/main/jniLibs/arm64-v8a/libksud.so
+          # Record what we shipped, so the release notes and any later audit can name it.
+          sha256sum app/src/main/jniLibs/arm64-v8a/libksud.so \
+            | tee /tmp/ksud.sha256
+          echo "bundled ksud $KSU_VERSION: $(cat /tmp/ksud.sha256)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Build debug APK
         run: |
           set -o pipefail

@@ -531,6 +531,58 @@ check(
     "user-facing sentences",
 )
 
+# 26. A bundled backend must actually be used, and must never be required.
+#     Two ways this goes wrong: the binary ships but nothing stages it (so the app still
+#     demands a manager), or the code assumes it is present (so builds without it break).
+check(
+    "object BundledKsud" in read(SRC / "core/root/BundledKsud.kt"),
+    "BundledKsud is missing: the bundled KernelSU backend must be extracted to the "
+    "staging path, not just packaged",
+)
+check(
+    "BundledKsud.stage(ctx)" in read(ROOT / "app/src/main/java/df/root/ExploitRunner.kt"),
+    "ExploitRunner must stage the bundled backend when it is present",
+)
+cm = strip_comments(read(SRC / "core/root/DfRootRunner.kt"))
+check(
+    "BundledKsud.present(context)" in cm,
+    "DfRootRunner must consult the bundled backend",
+)
+# The requirement is that selected() *falls back* to the bundled backend. Presence of
+# the words anywhere is not that: the call site satisfies a naive search even when the
+# fallback has been removed. Inspect the function body.
+_sel = cm.split("fun selected(context: Context)")[1].split("fun selfContained")[0]
+check(
+    "bundledSource(context)" in _sel,
+    "DfRootRunner.selected must fall back to the bundled backend, or a device with no "
+    "manager installed still refuses to run DFRoot",
+)
+check(
+    _sel.rstrip().rstrip("}").rstrip().endswith("bundledSource(context)"),
+    "the bundled backend must be the fallback in selected() — reached only after an "
+    "installed manager has been rejected",
+)
+
+# 27. A bundled backend must be optional at build time.
+#     If the fetch step fails, the app must degrade to asking for an installed manager
+#     rather than refusing to build or crashing at run time.
+check(
+    "getOrDefault(false)" in strip_comments(read(SRC / "core/root/BundledKsud.kt")),
+    "BundledKsud.present must fail closed to false: a build without the backend still "
+    "has to work",
+)
+
+# 28. Licence obligations are a gate, not a comment.
+check(
+    (ROOT / "tools/check_licenses.py").exists(),
+    "tools/check_licenses.py is missing: bundling a GPL binary without its notice, "
+    "licence text and source offer is a licence violation that nothing else catches",
+)
+check(
+    "check_licenses.py" in read(ROOT / ".github/workflows/android-ci.yml"),
+    "the licence gate must run in CI",
+)
+
 # ================================== report ===================================
 if failures:
     print(f"FAIL: {len(failures)} transport problem(s)")

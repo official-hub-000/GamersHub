@@ -132,17 +132,39 @@ object DfRootRunner {
         runCatching { context.createDeviceProtectedStorageContext() }
             .getOrDefault(context)
 
-    /** The manager the exploit will bootstrap, or null when none was chosen/still installed. */
+    /**
+     * Marker used when the backend comes from this APK instead of an installed manager.
+     *
+     * The exploit is handed a package name because upstream DFRoot reads `libksud.so` from
+     * a manager's `nativeLibraryDir`. When the backend ships here, the "manager" is this
+     * app, so that is the name it gets — the staged binary is already [DfPaths.ksudStage],
+     * which is what `bootstrap` execs.
+     */
+    fun bundledSource(context: Context): String? =
+        context.packageName.takeIf { BundledKsud.present(context) }
+
+    /**
+     * The manager the exploit will bootstrap, or null when none is available.
+     *
+     * A bundled backend counts: if this APK carries `ksud`, DFRoot has everything it
+     * needs and no separate manager app has to be installed. An installed manager the
+     * user picked still wins, because it is the one whose policy and modules they expect.
+     */
     fun selected(context: Context): String? {
         val saved = deContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(PREF_SU_MANAGER, null)
-            ?: return null
-        // Cheap check: the manager must still be installed and still carry libksud.so.
-        val info = runCatching {
-            context.packageManager.getApplicationInfo(saved, 0)
-        }.getOrNull() ?: return null
-        return saved.takeIf { df.root.ExploitRunner.hasKsud(info) }
+        if (saved != null) {
+            // Cheap check: the manager must still be installed and still carry libksud.so.
+            val info = runCatching {
+                context.packageManager.getApplicationInfo(saved, 0)
+            }.getOrNull()
+            if (info != null && df.root.ExploitRunner.hasKsud(info)) return saved
+        }
+        return bundledSource(context)
     }
+
+    /** True when this build can run DFRoot without any separate manager app installed. */
+    fun selfContained(context: Context): Boolean = BundledKsud.present(context)
 
     fun select(context: Context, pkg: String) {
         deContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)

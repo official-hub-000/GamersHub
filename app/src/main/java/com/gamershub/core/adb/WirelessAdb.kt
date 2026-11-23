@@ -190,11 +190,19 @@ object WirelessAdb {
         context.getSharedPreferences("gamershub", Context.MODE_PRIVATE).getInt("wireless_port", 0)
     }.getOrDefault(0)
 
+    /**
+     * What the pill says.
+     *
+     * `Status.OFF` is the *initial* state as well as a genuine "adbd did not answer", and
+     * calling both "Wireless debugging off" was asserting something the app had not
+     * checked — on a fresh install it had not tried at all. Now it says which of the two
+     * it is: untouched, or tried and nothing answered.
+     */
     fun statusLabel(): String = when (status) {
         Status.CONNECTED -> "Connected"
         Status.NOT_PAIRED -> "Pair needed"
         Status.UNAUTHORISED -> "Not authorised"
-        Status.OFF -> "Wireless debugging off"
+        Status.OFF -> if (lastError.isBlank()) "Not connected yet" else "No adbd answered"
         Status.UNSUPPORTED -> "Pairing unsupported here"
     }
 

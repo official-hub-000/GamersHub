@@ -1,0 +1,28 @@
+Source code for the bundled KernelSU backend
+=============================================
+
+This application ships `ksud`, the userspace backend of KernelSU, as
+`lib/arm64-v8a/libksud.so` inside the APK.
+
+  Component : ksud (KernelSU userspace daemon)
+  Version   : v3.3.1
+  Upstream  : https://github.com/tiann/KernelSU
+  Licence   : GNU General Public License, version 3 (see KernelSU-GPL-3.0.txt)
+  Corresponding source for this exact version:
+              https://github.com/tiann/KernelSU/tree/v3.3.1
+
+GPL-3.0 section 6 requires that recipients be able to obtain the corresponding
+source. The tag above is the exact upstream revision the shipped binary was built
+from; it is a complete source tree, published by the upstream project, and it is
+the preferred form for modification.
+
+If that tag ever becomes unreachable, the repository root is a mirror and the
+same tree remains available from it. Requests for the source may also be sent to
+official.hub.000@gmail.com and will be answered with the exact tree.
+
+Why this file exists
+--------------------
+This application has no other GPL component. Carrying `ksud` makes the distributed
+APK a GPL-3.0 work. `tools/check_licenses.py` fails the build if the binary is
+present while this notice, the licence text, or the in-app attribution is missing,
+so the obligation cannot be dropped by accident.

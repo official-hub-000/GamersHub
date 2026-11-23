@@ -160,9 +160,14 @@ object DfRoot {
         // question the picker asks, for every installed manager — probing a single
         // hard-coded package reported "not bootstrap-capable" on KernelSU-Next, KowSU
         // and Samsung forks, which are all listed as supported upstream.
+        // The bundled backend counts as bootstrap-capable on its own: with `ksud` inside
+        // this APK the exploit has what it execs, and no manager app is required.
         val canBootstrap = runCatching {
-            DfRootRunner.candidates(context).isNotEmpty()
+            DfRootRunner.candidates(context).isNotEmpty() ||
+                DfRootRunner.selfContained(context)
         }.getOrDefault(false)
+        val selfContained = runCatching { DfRootRunner.selfContained(context) }
+            .getOrDefault(false)
 
         val notes = buildList {
             // The payload is embedded — it has been since the LKM build was wired into CI —
@@ -186,8 +191,15 @@ object DfRoot {
             }
             if (root) add("Root is already live — no need to run DFRoot again")
             add(
-                if (canBootstrap) "SU manager found and bootstrap-capable"
-                else "No bootstrap-capable SU manager found — install KernelSU, KernelSU-Next or KowSU first; the exploit only starts their su daemon"
+                when {
+                    selfContained ->
+                        "KernelSU backend (ksud) is bundled in this build — no separate " +
+                            "manager app is needed, and DFRoot starts root from here"
+                    canBootstrap -> "SU manager found and bootstrap-capable"
+                    else ->
+                        "No bootstrap-capable SU manager found — install KernelSU, " +
+                            "KernelSU-Next or KowSU first; the exploit only starts their su daemon"
+                }
             )
         }
 

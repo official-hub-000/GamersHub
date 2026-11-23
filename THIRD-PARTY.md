@@ -54,3 +54,30 @@ persistence, no spread, no remote access.
 GPL-2.0 code, so the combined work must be distributed under GPL-2.0 terms with source
 available. GamersHub's source is public on GitHub, which satisfies this. Repackaging
 the APK outside the repository breaks it.
+
+## Bundled binary: KernelSU backend (`ksud`)
+
+**Source:** https://github.com/tiann/KernelSU (v3.3.1, tag `v3.3.1`)
+**Licence:** GPL-3.0 (see `licenses/KernelSU-GPL-3.0.txt` and the written source offer
+in `licenses/KernelSU-SOURCE.txt`).
+**Shipped as:** `lib/arm64-v8a/libksud.so` — the executable is named like a native
+library because Android packages nothing from `jniLibs` except `lib*.so`. It is not
+loaded as a library; it is extracted to the payload directory and exec'd.
+**Fetched:** at build time by `.github/workflows/android-ci.yml`, pinned to one release
+tag, and its SHA-256 is printed into the build log so the shipped binary can be named
+exactly.
+
+**Used for:** the SU backend that DFRoot's kernel module execs. The module patches the
+kernel and calls `ksud late-load`; `ksud` is what starts the `su` daemon, holds the
+policy and mounts modules. Bundling it is what removes the requirement to install a
+separate KernelSU / KernelSU-Next / KowSU app.
+
+This is a **dependency moved, not removed**, and it is worth being exact about: the app
+does not reimplement KernelSU, it carries KernelSU's own backend so the user does not
+have to install KernelSU's UI as well.
+
+**Consequence of GPL-3.0:** as with DFRoot above, the distributed APK is a combined work
+including GPL code and the corresponding source must be available. The repository is
+public and `licenses/KernelSU-SOURCE.txt` names the exact upstream tag.
+`tools/check_licenses.py` fails the build if the binary is present while the licence
+text, source offer or in-app attribution is missing.
