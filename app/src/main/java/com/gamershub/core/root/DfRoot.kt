@@ -127,7 +127,7 @@ object DfRoot {
         val parts = raw.split('-').firstOrNull()?.split('.')
         val major = parts?.getOrNull(0)?.toIntOrNull() ?: 0
         val minor = parts?.getOrNull(1)?.toIntOrNull() ?: 0
-        val brand = Regex("-android(\d+)").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val brand = Regex("-android(\\d+)").find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()
         return Triple(major, minor, brand)
     }
 
