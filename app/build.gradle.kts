@@ -18,8 +18,8 @@ android {
         applicationId = "com.gamershub"
         minSdk = 26
         targetSdk = 35
-        versionCode = 126
-        versionName = "6.38.2"
+        versionCode = 127
+        versionName = "6.38.3"
         ndk { abiFilters += listOf("arm64-v8a") }
         vectorDrawables { useSupportLibrary = true }
     }

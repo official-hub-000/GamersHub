@@ -1476,10 +1476,22 @@ private fun DfRootSection(
                         .background(Color(0xFF0D1117))
                         .padding(10.dp)
                 ) {
+                    // ORDER MATTERS, and this was backwards. Modifiers are applied
+                    // outside-in, so `verticalScroll` BEFORE `heightIn` means the
+                    // scrollable is measured first — with an unbounded height — and the
+                    // height bound is applied inside it. A scrollable measured with an
+                    // infinity constraint throws:
+                    //
+                    //   IllegalStateException: Vertically scrollable component was
+                    //   measured with an infinity maximum height constraints
+                    //
+                    // Bounding first gives the scrollable a finite height to live in,
+                    // which is the whole point. This is the crash that arrived with the
+                    // DFRoot log view, and it only fired once a log existed to show.
                     Column(
                         Modifier
-                            .verticalScroll(rememberScrollState())
                             .heightIn(max = 220.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
                         Text(
                             log,

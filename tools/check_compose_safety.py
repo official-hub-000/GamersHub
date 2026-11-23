@@ -93,9 +93,42 @@ if pair_connect:
             f"pairing, so this pairs successfully and then fails to connect"
         )
 
+# ---- 3. A scrollable must be bounded BEFORE it is made scrollable ---------------
+# Modifiers apply outside-in. `.verticalScroll(...).heightIn(max = X)` measures the
+# scrollable first, with an unbounded height, and applies the bound inside it — which
+# throws "Vertically scrollable component was measured with an infinity maximum height
+# constraints". The bound has to come first.
+import re as _re
+
+for path in (UI.rglob("*.kt")):
+    lines = path.read_text(encoding="utf-8").split("\n")
+    for i, ln in enumerate(lines):
+        if "verticalScroll" not in ln:
+            continue
+        # A line that only MENTIONS verticalScroll (a comment explaining this very rule)
+        # is not a call site. Requiring the opening paren keeps the doc comments out.
+        if ln.lstrip().startswith(("*", "//")) or "verticalScroll(" not in ln:
+            continue
+        # Walk the rest of this modifier chain, skipping comment lines. The chain ends at
+        # a closing paren or the composable's opening brace.
+        for j in range(i + 1, min(i + 14, len(lines))):
+            nxt = lines[j].strip()
+            if not nxt or nxt.startswith(("*", "//")):
+                continue
+            if _re.search(r"\.(heightIn|height|size)\(", nxt):
+                problems.append(
+                    f"{path.name}:{j + 1}: height bound applied AFTER verticalScroll — the "
+                    f"scrollable is measured with an infinite height and throws; put the "
+                    f"bound first"
+                )
+                break
+            if nxt.startswith(")") or nxt.startswith("{"):
+                break
+
 if problems:
     print(f"FAIL: {len(problems)} unsafe Compose/transport construction(s)")
     for p in problems:
         print(f"  - {p}")
     sys.exit(1)
+
 print("PASS: no lazily-scrolled list inside a scrolling sheet; pairing hands its port to connect")

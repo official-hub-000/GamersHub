@@ -344,11 +344,12 @@ object WirelessAdb {
                 false to lastError
             }
         } catch (t: Throwable) {
-            // Not "pairing failed": either the code was wrong (the user can fix that) or
-            // our crypto refused (the user cannot) or the port was not a pairing port at
-            // all. remedy() is what tells them apart, and it names the port it used so
-            // the three are distinguishable without a debugger.
-            lastError = remedy(t) + " (pairing port $target)"
+            // Name the exception type, its cause and the port dialled. "Could not
+            // exchange peer info" is thrown for a rejected code, a dead port and a
+            // cipher that failed to initialise alike; the type is the only thing that
+            // separates them without a debugger.
+            val cause = t.cause?.let { " / cause " + it.javaClass.simpleName + ": " + (it.message ?: "") }.orEmpty()
+            lastError = remedy(t) + " (pairing port $target, " + t.javaClass.simpleName + ": " + (t.message ?: "no message") + cause + ")"
             status = classify(t)
             false to lastError
         }
