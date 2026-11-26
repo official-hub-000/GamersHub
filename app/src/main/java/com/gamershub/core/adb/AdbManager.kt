@@ -109,7 +109,14 @@ object AdbIdentity {
         val keyFile = File(context.filesDir, KEY_FILE)
         val certFile = File(context.filesDir, CERT_FILE)
         if (keyFile.exists() && certFile.exists()) {
-            runCatching { return readPrivateKey(keyFile) to readCertificate(certFile) }
+            val privateKeyResult = runCatching { readPrivateKey(keyFile) }
+            val certResult = runCatching { readCertificate(certFile) }
+            if (privateKeyResult.isSuccess && certResult.isSuccess) {
+                return privateKeyResult.getValue()!! to certResult.getValue()!!
+            }
+            // Identity files exist but are corrupt: clear them and regenerate.
+            runCatching { keyFile.delete() }
+            runCatching { certFile.delete() }
         }
         return generate(context)
     }
@@ -131,9 +138,7 @@ object AdbIdentity {
 
         runCatching {
             File(context.filesDir, KEY_FILE).writeBytes(pair.private.encoded)
-            val b64 = Base64.encodeToString(cert.encoded, Base64.DEFAULT).trim()
-            val pem = "-----BEGIN CERTIFICATE-----\n$b64\n-----END CERTIFICATE-----\n"
-            File(context.filesDir, CERT_FILE).writeText(pem)
+            File(context.filesDir, CERT_FILE).writeBytes(cert.encoded)
         }
         return pair.private to cert
     }
@@ -145,14 +150,20 @@ object AdbIdentity {
     private fun readCertificate(file: File): Certificate {
         val raw = file.readBytes()
         val cf = CertificateFactory.getInstance("X.509")
-        // Support DER binary, proper PEM, and legacy headerless Base64 written by older builds.
-        val derOrPem = if (raw.isNotEmpty() && (raw[0].toInt() == 0x30 ||
-                raw.decodeToString().trimStart().startsWith("-----BEGIN"))) {
-            raw
-        } else {
-            Base64.decode(raw, Base64.DEFAULT)
+        val der = when {
+            raw.isNotEmpty() && raw[0].toInt() == 0x30 -> raw // DER binary
+            else -> {
+                // PEM text written by older builds, or legacy headerless Base64.
+                val pem = String(raw, Charsets.UTF_8)
+                val b64 = pem
+                    .substringAfter("-----BEGIN CERTIFICATE-----")
+                    .substringBefore("-----END CERTIFICATE-----")
+                    .filter { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
+                if (b64.isNotEmpty()) Base64.decode(b64, Base64.DEFAULT)
+                else Base64.decode(raw, Base64.DEFAULT)
+            }
         }
-        return cf.generateCertificate(ByteArrayInputStream(derOrPem))
+        return cf.generateCertificate(ByteArrayInputStream(der))
     }
 }
 
