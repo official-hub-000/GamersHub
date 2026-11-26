@@ -15,33 +15,20 @@ import rikka.shizuku.Shizuku
  *
  * There is no root: every transport answers as the shell user (uid 2000).
  *
- * Three transports answer it:
+ * **Shizuku** is the only transport kept: uid 2000 via a binder.
  *
- *  1. **the daemon** ([com.gamershub.core.adb.ShellDaemon]) — uid 2000 in a process of
- *     its own that outlives wireless debugging. This is the Shizuku role filled in-app:
- *     started once over any shell, then independent of ADB, ports and this process.
- *  2. **Wireless debugging** ([com.gamershub.core.adb.WirelessAdb]) — uid 2000 via
- *     the phone's own `adbd`. This is the same uid Shizuku's server runs as, so it is
- *     a genuine replacement for Shizuku, not a weaker mode: `settings`, `cmd`,
- *     `dumpsys`, `wm`, `am` and `pm` all answer identically.
- *  3. **Shizuku** ([rikka.shizuku.Shizuku]) — uid 2000 via a binder.
- *
- * Wireless debugging is tried before Shizuku on purpose. If the user has both, the
- * direct connection involves one fewer moving part and keeps working when the
- * Shizuku app is force-stopped or its binder is recycled. A user who has neither
- * still gets the same honest "needs a shell" answer from every call site.
- *
- * Call sites never choose a transport. They call [exec]/[ok]/[available] and the
- * dispatcher decides, which is what keeps the feature set identical across all three.
+ * Call sites never choose a transport. They call [exec]/[ok]/[available] and the dispatcher decides,
+ * which is what keeps the feature set identical across all transports.
  *
  * Shizuku-backed shell with a real connection state machine.
  *
- * - [ensure] binds the user service as soon as the permission exists and is
- *   safe to call on every resume (it never binds twice).
- * - [requestPermission] can only fire once per process, so the Shizuku dialog
- *   is never shown in a loop to a user that already granted access.
- * - [exec] / [ok] self-heal: if the binder dropped (Shizuku restarted) they
- *   rebind with the stored application context before giving up.
+ * - [ensure] binds the user service as soon as the permission exists and is safe to call on every resume
+ *   (it never binds twice).
+ * - [requestPermission] can only fire once per process, so the Shizuku dialog is never shown in a loop
+ *   to a user that already granted access.
+ * - [exec] / [ok] self-heal: if the binder dropped (Shizuku restarted) they rebind with the stored
+ *   application context before giving up.
+ * - [disconnect] releases the binding.
  */
 object Shell {
 
@@ -65,10 +52,6 @@ object Shell {
     /** Real ring buffer of what this app actually asked the shell to do. */
     private val history = java.util.ArrayDeque<String>()
 
-    fun recent(limit: Int = 8): List<String> = synchronized(history) {
-        history.toList().takeLast(limit)
-    }
-
     private fun record(line: String) {
         synchronized(history) {
             history.addLast(line)
@@ -88,23 +71,18 @@ object Shell {
     }
 
     fun running(): Boolean = try {
-        com.gamershub.core.adb.ShellDaemon.alive ||
-            com.gamershub.core.adb.WirelessAdb.connected() ||
-            Shizuku.pingBinder()
+        Shizuku.pingBinder()
     } catch (_: Throwable) {
-        com.gamershub.core.adb.ShellDaemon.alive || com.gamershub.core.adb.WirelessAdb.connected()
+        false
     }
 
     fun granted(): Boolean = try {
         // Any of the three transports being live means privileged work is possible,
         // whether or not Shizuku is installed, running, or authorised.
-        com.gamershub.core.adb.ShellDaemon.alive ||
-            com.gamershub.core.adb.WirelessAdb.connected() ||
-            (Shizuku.pingBinder() &&
-                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+        (Shizuku.pingBinder() &&
+            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     } catch (_: Throwable) {
-        com.gamershub.core.adb.ShellDaemon.alive ||
-            com.gamershub.core.adb.WirelessAdb.connected()
+        false
     }
 
     fun connected(): Boolean = binder != null
@@ -185,33 +163,13 @@ object Shell {
      * The bound user service remains as a fallback for older Shizuku builds.
      */
     fun exec(command: String): String? {
-        // The daemon first: a separate uid-2000 process, so it answers even with
-        // wireless debugging switched off. This is the transport that makes the
-        // privilege outlive the connection that created it.
-        if (com.gamershub.core.adb.ShellDaemon.alive) {
-            com.gamershub.core.adb.ShellDaemon.exec(command)?.let { out ->
-                record("$ " + command.take(70) + "  →  daemon")
-                return out
-            }
-        }
-
-        // Wireless debugging next: the same uid 2000 as Shizuku, reached directly.
-        // One fewer hop than the binder, and it keeps working when Shizuku's server
-        // has been force-stopped.
-        if (com.gamershub.core.adb.WirelessAdb.connected()) {
-            val ctx = appContext ?: com.gamershub.GamersHubApp.instance
-            if (ctx != null) {
-                com.gamershub.core.adb.WirelessAdb.exec(ctx, command)?.let { out ->
-                    record("$ " + command.take(70) + "  →  wireless adb")
-                    return out
-                }
-            }
-        }
         directExec(command)?.let { out ->
             record("$ " + command.take(70) + "  →  ok")
             return out
         }
+
         if (binder == null) autoBind()
+
         val out = try {
             binder?.exec(command)
         } catch (t: Throwable) {
@@ -308,38 +266,13 @@ object Shell {
     }
 
     /** True when privileged commands can actually run right now. */
-    fun available(): Boolean = granted() || binder != null ||
-        com.gamershub.core.adb.ShellDaemon.alive ||
-        com.gamershub.core.adb.WirelessAdb.connected()
+    fun available(): Boolean = granted() || binder != null
 
     /** Human-readable reason for the last failure (drives the UI messages). */
     fun reason(): String = when {
-        com.gamershub.core.adb.ShellDaemon.alive ->
-            lastError.ifBlank { "the shell daemon rejected the command" }
-        com.gamershub.core.adb.WirelessAdb.connected() ->
-            lastError.ifBlank { "wireless debugging rejected the command" }
-        !running() -> "No shell: start the daemon, pair wireless debugging, or run Shizuku"
+        !running() -> "No shell: run Shizuku"
         !granted() -> "GamersHub is not authorised in Shizuku"
         else -> lastError.ifBlank { "shell rejected the command" }
-    }
-
-    /** Last resort: plain app-side exec (no privileges). */
-    fun appExec(command: String): String = try {
-        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-        val out = StringBuilder()
-        // readText() on a wedged process blocks forever — drain on threads with a cap.
-        val reader = Thread { runCatching { process.inputStream.bufferedReader().forEachLine { out.appendLine(it) } } }
-        val err = Thread { runCatching { process.errorStream.bufferedReader().forEachLine { out.appendLine(it) } } }
-        reader.start()
-        err.start()
-        reader.join(1500)
-        err.join(1500)
-        val finished = runCatching { process.waitFor(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
-            .getOrDefault(true)
-        if (!finished) runCatching { process.destroy() }
-        out.toString()
-    } catch (t: Throwable) {
-        t.message ?: ""
     }
 
     /** Releases the binding (used by the activation sheet's Reconnect button). */

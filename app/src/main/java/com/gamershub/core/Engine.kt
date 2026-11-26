@@ -21,8 +21,8 @@ import com.gamershub.overlay.MouseCursorService
 /**
  * The master engine switch.
  *
- * ON  → snapshot the device, then allow privileged work through the shell
- *        channels (Shizuku, wireless debugging, the in-app daemon).
+ * ON  → snapshot the device, then allow privileged work through Shizuku
+ *        (the only shell channel).
  * OFF → *restore to default*: every overlay, capture surface, shell binding,
  *        settings key and display override the app made is undone.
  *
@@ -90,34 +90,8 @@ object Engine {
 
         runCatching { Shell.ensure(context) }
 
-        // Re-attach the wireless-debugging shell when the user turned it on for this
-        // engine before. This is a reconnect, never an enable: GamersHub does not have
-        // (and does not ask for) the permission to switch wireless debugging on, so a
-        // device where the user turned it off is left exactly as it is.
-        runCatching {
-            if (context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                    .getBoolean("wireless_enabled", false)
-            ) {
-                com.gamershub.core.adb.WirelessAdb.attached(context)
-                if (!com.gamershub.core.adb.WirelessAdb.connected()) {
-                    com.gamershub.core.adb.WirelessAdb.connect(context)
-                }
-            }
-        }
-
-        // Bring the shell daemon back if the user had one. This is what makes the
-        // privilege survive a restart of the app rather than of the phone: the daemon
-        // may still be running from the last session, and if it is not, the transport
-        // that is live right now can start it again.
-        runCatching {
-            com.gamershub.core.adb.ShellDaemon.attached(context)
-            if (!com.gamershub.core.adb.ShellDaemon.ping() &&
-                context.getSharedPreferences("gamershub", Context.MODE_PRIVATE)
-                    .getBoolean("daemon_enabled", false)
-            ) {
-                com.gamershub.core.adb.ShellDaemon.start(context)
-            }
-        }
+        // Only Shizuku is used as the privileged transport. Wireless debugging and the
+        // in-app shell daemon are not started, re-attached or used.
 
         return statusLine(context)
     }
@@ -184,18 +158,6 @@ object Engine {
                 Shell.disconnect()
                 released += "Shizuku binder"
             }
-            runCatching {
-                com.gamershub.core.adb.ShellDaemon.stop(context)
-                released += "shell daemon"
-            }
-            // Only the socket is dropped; the device keeps this app authorised, so the
-            // next connect needs no pairing code.
-            runCatching {
-                if (com.gamershub.core.adb.WirelessAdb.connected()) {
-                    com.gamershub.core.adb.WirelessAdb.disconnect()
-                    released += "wireless debugging link"
-                }
-            }
             if (released.isNotEmpty()) done += "released ${released.joinToString(", ")}"
         }
 
@@ -229,10 +191,6 @@ object Engine {
     /** One-line state for cards. Says which channel is live and what it can reach. */
     fun statusLine(context: Context): String = when {
         !isOn -> "Engine off — phone restored"
-        Channel.kind() == Channel.Kind.DAEMON ->
-            "Engine on · GamersHub daemon (uid 2000) · independent of ADB"
-        Channel.kind() == Channel.Kind.WIRELESS ->
-            "Engine on · wireless debugging (shell subset)"
         Channel.kind() == Channel.Kind.SHIZUKU ->
             "Engine on · Shizuku (shell subset)"
         else -> "Engine on · no privilege — overlays only"
@@ -257,8 +215,6 @@ object Engine {
         if (Recorder.isRecording) out += "screen recording"
         if (Stream.isStreaming) out += "live stream"
         if (Shell.available()) out += "Shizuku connection"
-        if (com.gamershub.core.adb.ShellDaemon.alive) out += "shell daemon"
-        if (com.gamershub.core.adb.WirelessAdb.connected()) out += "wireless debugging link"
         if (GfxSafe.isUnclean()) out += "leftover graphics properties"
         if (Settings.canDrawOverlays(context)) out += "overlay window permission (kept by Android)"
         return out

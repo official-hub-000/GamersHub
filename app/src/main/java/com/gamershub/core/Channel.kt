@@ -11,9 +11,8 @@ import com.gamershub.core.shizuku.Shell
  *
  * The rule the app promises:
  *
- *  - **Shell is optional.** With no Shizuku / wireless debugging / daemon,
- *    GamersHub still runs: overlays, macros, the panel and capture are
- *    app-level features.
+ *  - **Shell is optional.** With no Shizuku, GamersHub still runs: overlays, macros,
+ *    the panel and capture are app-level features.
  *  - **A shell user gets exactly the shell-reachable subset.** Features that
  *    would need uid 0 are not part of the app; nothing is silently faked.
  *
@@ -23,13 +22,10 @@ import com.gamershub.core.shizuku.Shell
 object Channel {
 
     /**
-     * Which transport is answering.
-     *
-     * [WIRELESS] is deliberately not folded into [SHIZUKU]: they carry identical
-     * capabilities, but the user needs to see which one is holding the shell, and the
-     * fix differs when one drops.
+     * Which transport is answering. Shizuku is the only transport kept;
+     * wireless debugging and the in-app shell daemon are removed.
      */
-    enum class Kind { NONE, DAEMON, WIRELESS, SHIZUKU }
+    enum class Kind { NONE, SHIZUKU }
 
     /** What a channel can actually reach. */
     enum class Capability {
@@ -52,36 +48,15 @@ object Channel {
             Capability.SETTINGS_WRITE,
             Capability.PACKAGE_CONTROL,
         ),
-        // Wireless debugging runs `adbd` as uid 2000 — the same user, and therefore
-        // the same reach, as Shizuku's server. Kept as an explicit copy rather than a
-        // reference so that a future change to one cannot silently alter the other
-        // without someone deciding to.
-        Kind.WIRELESS to setOf(
-            Capability.SHELL,
-            Capability.SETTINGS_WRITE,
-            Capability.PACKAGE_CONTROL,
-        ),
-        // The in-app daemon is the same uid 2000, so the same capability set — but it
-        // is listed separately because it is the one that keeps answering with ADB
-        // switched off, and that is worth being able to see in the panel.
-        Kind.DAEMON to setOf(
-            Capability.SHELL,
-            Capability.SETTINGS_WRITE,
-            Capability.PACKAGE_CONTROL,
-        ),
     )
 
     /** Current channel, evaluated against live state rather than a cached flag. */
     fun kind(): Kind = when {
-        com.gamershub.core.adb.ShellDaemon.alive -> Kind.DAEMON
-        com.gamershub.core.adb.WirelessAdb.connected() -> Kind.WIRELESS
         Shell.available() -> Kind.SHIZUKU
         else -> Kind.NONE
     }
 
     fun label(): String = when (kind()) {
-        Kind.DAEMON -> "GamersHub daemon"
-        Kind.WIRELESS -> "wireless debugging"
         Kind.SHIZUKU -> "Shizuku"
         Kind.NONE -> "no privilege"
     }
@@ -94,8 +69,8 @@ object Channel {
         val k = kind()
         return Capability.entries.filter { !can(it) }.map { cap ->
             cap to when (k) {
-                Kind.NONE -> "needs the daemon, wireless debugging or Shizuku"
-                Kind.DAEMON, Kind.WIRELESS, Kind.SHIZUKU -> "unavailable"
+                Kind.NONE -> "needs Shizuku"
+                Kind.SHIZUKU -> "unavailable"
             }
         }
     }
@@ -110,8 +85,6 @@ object Channel {
     fun exec(context: Context, command: String, timeoutMs: Long = 8_000): String? {
         if (!Engine.isOn && !Engine.isStopping) return null
         return when (kind()) {
-            Kind.DAEMON -> Shell.exec(command)     // Shell routes to the daemon socket
-            Kind.WIRELESS -> Shell.exec(command)   // Shell routes to the live wireless link
             Kind.SHIZUKU -> Shell.exec(command)
             Kind.NONE -> null
         }
