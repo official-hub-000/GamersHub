@@ -59,6 +59,10 @@ object Shell {
         }
     }
 
+    fun recent(limit: Int = 8): List<String> = synchronized(history) {
+        history.toList().takeLast(limit)
+    }
+
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = IGamersHubShell.Stub.asInterface(service)

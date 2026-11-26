@@ -1141,10 +1141,9 @@ private fun ValueBox(value: String, suffix: String, modifier: Modifier = Modifie
 }
 
 /* ------------------------------------------------------------------ */
-/* Activation Center — Shizuku + pairing                              */
+/* Activation Center — Shizuku only                                  */
 /* ------------------------------------------------------------------ */
 
-@Composable
 @Composable
 fun ActivationSheet(
     envLevel: Int,
