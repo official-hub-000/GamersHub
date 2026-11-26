@@ -212,9 +212,11 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         var ping by remember { mutableStateOf(-1) }
         LaunchedEffect(Unit) {
             // Only the Lobby and Profile show live numbers — sampling while the user is
-            // on Tools/Labs/Game Space was pure jank for nothing.
+            // on Tools/Labs/Game Space was pure jank for nothing. While the intro video
+            // is up it is also paused: decoding the 120 fps clip already owns the frame
+            // budget, and recomposing the lobby behind the opaque intro only steals from it.
             while (true) {
-                if (tab == Tab.LOBBY || tab == Tab.PROFILE) {
+                if (!showIntro && (tab == Tab.LOBBY || tab == Tab.PROFILE)) {
                     runCatching {
                         cpu = withContext(Dispatchers.IO) { DeviceStats.cpu() }
                         mem = withContext(Dispatchers.IO) { DeviceStats.mem(context) }
