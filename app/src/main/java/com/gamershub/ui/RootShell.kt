@@ -226,14 +226,30 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             }
         }
         LaunchedEffect(Unit) {
+            // Only the Lobby and Profile show live numbers — sampling while the user is
+            // on Tools/Labs/Game Space was pure jank for nothing. While the intro video
+            // is up it is also paused: decoding the 120 fps clip already owns the frame
+            // budget, and recomposing the lobby behind the opaque intro only steals from it.
             while (true) {
-                runCatching { storage = withContext(Dispatchers.IO) { DeviceStats.storage() } }
+                if (!showIntro && (tab == Tab.LOBBY || tab == Tab.PROFILE)) {
+                    runCatching {
+                        storage = withContext(Dispatchers.IO) { DeviceStats.storage() }
+                    }
+                }
                 delay(30000)
             }
         }
         LaunchedEffect(Unit) {
+            // Only the Lobby and Profile show live numbers — sampling while the user is
+            // on Tools/Labs/Game Space was pure jank for nothing. While the intro video
+            // is up it is also paused: decoding the 120 fps clip already owns the frame
+            // budget, and recomposing the lobby behind the opaque intro only steals from it.
             while (true) {
-                runCatching { ping = withContext(Dispatchers.IO) { DeviceStats.pingMs() } }
+                if (!showIntro && (tab == Tab.LOBBY || tab == Tab.PROFILE)) {
+                    runCatching {
+                        ping = withContext(Dispatchers.IO) { DeviceStats.pingMs() }
+                    }
+                }
                 delay(20000)
             }
         }
@@ -241,7 +257,11 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
         // Session timer — handed to Profile as a lambda so the tick never recomposes the shell.
         val sessionSeconds = remember { mutableIntStateOf(0) }
         LaunchedEffect(Unit) {
-            while (true) { delay(1000); sessionSeconds.intValue++ }
+            // Only Profile screen needs live session time; other screens don't need it.
+            while (true) {
+                delay(1000)
+                if (tab == Tab.PROFILE) sessionSeconds.intValue++
+            }
         }
         val sessionTime = {
             val s = sessionSeconds.intValue
