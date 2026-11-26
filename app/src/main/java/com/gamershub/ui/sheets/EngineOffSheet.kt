@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.gamershub.core.Channel
 import com.gamershub.core.Engine
 import com.gamershub.core.Restore
+import com.gamershub.ui.sheets.SheetFrame
 import com.gamershub.theme.GC
 import com.gamershub.theme.LocalAccent
 import com.gamershub.theme.RomKit
@@ -73,203 +74,205 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
     val channel = remember { Channel.kind() }
     val snapshotAge = remember { Restore.snapshotAge(context) }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
-        Spacer(Modifier.height(6.dp))
+    SheetFrame(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Spacer(Modifier.height(6.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                GhIcons.PowerSettingsNew,
-                null,
-                tint = if (report == null) Color(0xFFE2A03A) else Color(0xFF4ADE80),
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(
-                    if (report == null) "Turn engine off" else "Engine off",
-                    color = GC.Text,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.SemiBold
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    GhIcons.PowerSettingsNew,
+                    null,
+                    tint = if (report == null) Color(0xFFE2A03A) else Color(0xFF4ADE80),
+                    modifier = Modifier.size(22.dp)
                 )
-                Text(
-                    if (report == null) "restores the phone to how it was" else "phone restored",
-                    color = GC.TextDim,
-                    fontSize = 12.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        if (report == null) {
-            // ---- what will be undone
-            Text(
-                "THIS WILL UNDO",
-                color = accent,
-                fontSize = 10.sp,
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(8.dp))
-
-            if (pending.isEmpty()) {
-                Text(
-                    "Nothing is running and no changes were recorded. The switch will still " +
-                        "reset display and settings to platform defaults.",
-                    color = GC.TextDim,
-                    fontSize = 12.sp
-                )
-            } else {
-                pending.forEach { item ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 3.dp)
-                    ) {
-                        Box(
-                            Modifier
-                                .size(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(GC.TextDim)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(item, color = GC.Text, fontSize = 13.sp)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            // ---- honesty about what cannot be reverted
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RomKit.R12)
-                    .background(Color(0x1AE2A03A))
-                    .border(1.dp, Color(0x33E2A03A), RomKit.R12)
-                    .padding(12.dp)
-            ) {
+                Spacer(Modifier.width(10.dp))
                 Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(GhIcons.Warning, null, tint = Color(0xFFE2A03A), modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("What it cannot undo", color = GC.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Spacer(Modifier.height(6.dp))
                     Text(
-                        "• An app permission Android granted (e.g. overlay) is yours, not ours\n" +
-                            "• Settings Android doesn't let the shell user change are left as-is\n" +
-                            "• Files you deleted cannot be brought back",
+                        if (report == null) "Turn engine off" else "Engine off",
+                        color = GC.Text,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (report == null) "restores the phone to how it was" else "phone restored",
                         color = GC.TextDim,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Channel", color = GC.TextDim, fontSize = 11.sp)
-                Spacer(Modifier.weight(1f))
+            if (report == null) {
+                // ---- what will be undone
                 Text(
-                    when (channel) {
-                        Channel.Kind.DAEMON -> "daemon — shell-level restore"
-                        Channel.Kind.WIRELESS -> "wireless debugging — shell-level restore"
-                        Channel.Kind.SHIZUKU -> "Shizuku — shell-level restore"
-                        Channel.Kind.NONE -> "none — app-level restore only"
-                    },
-                    color = if (channel == Channel.Kind.NONE) Color(0xFFE2A03A) else GC.Text,
-                    fontSize = 11.sp
+                    "THIS WILL UNDO",
+                    color = accent,
+                    fontSize = 10.sp,
+                    letterSpacing = 2.sp,
+                    fontWeight = FontWeight.Bold
                 )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Snapshot", color = GC.TextDim, fontSize = 11.sp)
-                Spacer(Modifier.weight(1f))
-                Text(snapshotAge, color = GC.Text, fontSize = 11.sp)
-            }
+                Spacer(Modifier.height(8.dp))
 
-            Spacer(Modifier.height(18.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SheetButton(
-                    "KEEP RUNNING",
-                    filled = false,
-                    modifier = Modifier.weight(1f)
-                ) { onDismiss() }
-
-                SheetButton(
-                    if (stopping) "RESTORING…" else "TURN OFF",
-                    filled = true,
-                    enabled = !stopping,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    scope.launch {
-                        stopping = true
-                        val result = withContext(Dispatchers.IO) {
-                            Engine.stopEverything(context)
-                            Engine.lastRestore ?: Restore.Report()
+                if (pending.isEmpty()) {
+                    Text(
+                        "Nothing is running and no changes were recorded. The switch will still " +
+                            "reset display and settings to platform defaults.",
+                        color = GC.TextDim,
+                        fontSize = 12.sp
+                    )
+                } else {
+                    pending.forEach { item ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 3.dp)
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(GC.TextDim)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(item, color = GC.Text, fontSize = 13.sp)
                         }
-                        report = result
-                        stopping = false
                     }
                 }
-            }
-        } else {
-            // ---- result
-            val r = report!!
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(GhIcons.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(r.summary(), color = GC.Text, fontSize = 14.sp)
-            }
-            Spacer(Modifier.height(12.dp))
 
-            if (r.restored.isNotEmpty()) {
-                Text("RESTORED", color = Color(0xFF4ADE80), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                r.restored.take(12).forEach {
-                    Text("✓ $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(14.dp))
+
+                // ---- honesty about what cannot be reverted
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RomKit.R12)
+                        .background(Color(0x1AE2A03A))
+                        .border(1.dp, Color(0x33E2A03A), RomKit.R12)
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(GhIcons.Warning, null, tint = Color(0xFFE2A03A), modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("What it cannot undo", color = GC.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "• An app permission Android granted (e.g. overlay) is yours, not ours\n" +
+                                "• Settings Android doesn't let the shell user change are left as-is\n" +
+                                "• Files you deleted cannot be brought back",
+                            color = GC.TextDim,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
-                if (r.restored.size > 12) {
-                    Text("+${r.restored.size - 12} more", color = GC.TextDim, fontSize = 11.sp)
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Channel", color = GC.TextDim, fontSize = 11.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        when (channel) {
+                            Channel.Kind.DAEMON -> "daemon — shell-level restore"
+                            Channel.Kind.WIRELESS -> "wireless debugging — shell-level restore"
+                            Channel.Kind.SHIZUKU -> "Shizuku — shell-level restore"
+                            Channel.Kind.NONE -> "none — app-level restore only"
+                        },
+                        color = if (channel == Channel.Kind.NONE) Color(0xFFE2A03A) else GC.Text,
+                        fontSize = 11.sp
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Snapshot", color = GC.TextDim, fontSize = 11.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(snapshotAge, color = GC.Text, fontSize = 11.sp)
+                }
+
+                Spacer(Modifier.height(18.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SheetButton(
+                        "KEEP RUNNING",
+                        filled = false,
+                        modifier = Modifier.weight(1f)
+                    ) { onDismiss() }
+
+                    SheetButton(
+                        if (stopping) "RESTORING…" else "TURN OFF",
+                        filled = true,
+                        enabled = !stopping,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        scope.launch {
+                            stopping = true
+                            val result = withContext(Dispatchers.IO) {
+                                Engine.stopEverything(context)
+                                Engine.lastRestore ?: Restore.Report()
+                            }
+                            report = result
+                            stopping = false
+                        }
+                    }
+                }
+            } else {
+                // ---- result
+                val r = report!!
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(GhIcons.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(r.summary(), color = GC.Text, fontSize = 14.sp)
                 }
                 Spacer(Modifier.height(12.dp))
-            }
 
-            AnimatedVisibility(visible = r.skipped.isNotEmpty()) {
-                Column {
-                    Text("SKIPPED", color = Color(0xFFE2A03A), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                if (r.restored.isNotEmpty()) {
+                    Text("RESTORED", color = Color(0xFF4ADE80), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    r.skipped.forEach {
-                        Text("· $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    r.restored.take(12).forEach {
+                        Text("✓ $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    if (r.restored.size > 12) {
+                        Text("+${r.restored.size - 12} more", color = GC.TextDim, fontSize = 11.sp)
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-            }
 
-            AnimatedVisibility(visible = r.failed.isNotEmpty()) {
-                Column {
-                    Text("COULD NOT RESTORE", color = Color(0xFFE23A3A), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(6.dp))
-                    r.failed.forEach {
-                        Text("✗ $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                AnimatedVisibility(visible = r.skipped.isNotEmpty()) {
+                    Column {
+                        Text("SKIPPED", color = Color(0xFFE2A03A), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        r.skipped.forEach {
+                            Text("· $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        Spacer(Modifier.height(12.dp))
                     }
-                    Spacer(Modifier.height(12.dp))
                 }
+
+                AnimatedVisibility(visible = r.failed.isNotEmpty()) {
+                    Column {
+                        Text("COULD NOT RESTORE", color = Color(0xFFE23A3A), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        r.failed.forEach {
+                            Text("✗ $it", color = GC.TextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+
+                Text(
+                    "Overlays are closed and the Shizuku binder is disconnected. " +
+                        "The app is now an ordinary app.",
+                    color = GC.TextDim,
+                    fontSize = 11.sp
+                )
+
+                Spacer(Modifier.height(18.dp))
+                SheetButton("DONE", filled = true, modifier = Modifier.fillMaxWidth()) { onDismiss() }
             }
 
-            Text(
-                "Overlays are closed and the Shizuku binder is disconnected. " +
-                    "The app is now an ordinary app.",
-                color = GC.TextDim,
-                fontSize = 11.sp
-            )
-
-            Spacer(Modifier.height(18.dp))
-            SheetButton("DONE", filled = true, modifier = Modifier.fillMaxWidth()) { onDismiss() }
+            Spacer(Modifier.height(22.dp))
         }
-
-        Spacer(Modifier.height(22.dp))
     }
 }
 
