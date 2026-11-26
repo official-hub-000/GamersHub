@@ -891,8 +891,7 @@ private fun GsMark(
         energy = energy,
         load = load,
         active = com.gamershub.core.Engine.isOn ||
-            com.gamershub.core.shizuku.Shell.available() ||
-            com.gamershub.core.root.RootShell.ready(),
+            com.gamershub.core.shizuku.Shell.available(),
         accent = accentNow(),
         accentPair = accentPairNow()
     )
@@ -1769,7 +1768,7 @@ private fun ControlCenter(
 
             // ---- MASTER ENGINE ------------------------------------------------
             // The same switch as the lobby, in the place a player actually is when
-            // they want to stop everything. Off tears down root, Shizuku, overlays
+            // they want to stop everything. Off tears down Shizuku, overlays
             // and capture and restores the phone; it is not a pause.
             val gateAccent = if (engineOn) accentNow() else Color(0xFF6B7280)
             Row(
@@ -1788,7 +1787,7 @@ private fun ControlCenter(
                             com.gamershub.core.Engine.stopEverything(context)
                             memNote = "engine off · phone restored"
                         } else {
-                            com.gamershub.core.Engine.start(context, wantRoot = false)
+                            com.gamershub.core.Engine.start(context)
                             memNote = com.gamershub.core.Engine.statusLine(context)
                         }
                         engineTick++

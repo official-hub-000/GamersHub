@@ -111,7 +111,6 @@ enum class Tab(val icon: ImageVector, val label: String) {
     LOBBY(GhIcons.Gamepad, "Lobby"),
     LABS(GhIcons.Science, "Game-Labs"),
     TOOLS(GhIcons.Widgets, "Tools"),
-    ROOT(GhIcons.Security, "Root"),
     PROFILE(GhIcons.Person, "Profile")
 }
 
@@ -465,7 +464,6 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     engineOn = engineOnNow,
                     engineChannel = when {
                         !com.gamershub.core.Engine.isOn -> ""
-                        com.gamershub.core.root.RootShell.ready() -> "root"
                         com.gamershub.core.shizuku.Shell.available() -> "Shizuku"
                         else -> "app only"
                     },
@@ -476,10 +474,7 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             sheet = SheetState.EngineOff
                         } else {
                             runCatching {
-                                com.gamershub.core.Engine.start(
-                                    context,
-                                    wantRoot = com.gamershub.core.Engine.rootOptIn(context)
-                                )
+                                com.gamershub.core.Engine.start(context)
                             }
                             engineTick++
                         }
@@ -490,7 +485,6 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                     onOpenSheet = { key -> sheet = sheetFor(key) },
                     onOpenGameSpace = { openGameSpace(context, library.firstOrNull()?.pkg ?: "") }
                 )
-                Tab.ROOT -> RootScreen()
                 Tab.LABS -> GameLabsScreen(
                     envLevel = envLevel,
                     toggleState = ::toggleGet,

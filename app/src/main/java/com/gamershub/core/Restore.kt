@@ -3,16 +3,13 @@ package com.gamershub.core
 import android.content.Context
 import android.provider.Settings
 import com.gamershub.GamersHubApp
-import com.gamershub.core.root.ModuleManager
-import com.gamershub.core.root.RootShell
 
 /**
  * Restore-to-default.
  *
  * GamersHub writes to places that outlive the app: `settings put`, `wm size`,
- * `wm density`, system properties, and (via modules) things that only unwind on a
- * reboot. Turning the engine off has to put every one of those back, or "off"
- * means "stopped doing new damage" rather than "phone is as it was".
+ * `wm density`. Turning the engine off has to put every one of those back, or
+ * "off" means "stopped doing new damage" rather than "phone is as it was".
  *
  * The contract this file implements:
  *
@@ -160,7 +157,7 @@ object Restore {
     fun restore(context: Context, deep: Boolean = true): Report {
         val report = Report()
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val privileged = RootShell.ready() || com.gamershub.core.shizuku.Shell.available()
+        val privileged = com.gamershub.core.shizuku.Shell.available()
         GamersHubApp.step("restore:start(deep=$deep)")
 
         // ---------------------------------------------------- 1. settings keys
@@ -262,16 +259,6 @@ object Restore {
             // reported so the user knows what is still allowed.
             if (Settings.canDrawOverlays(context)) {
                 report.skipped += "overlay permission (system-granted, revoke in Settings)"
-            }
-        }
-
-        // ---------------------------------------------------- 8. module pending ops
-        if (deep && RootShell.ready()) {
-            runCatching {
-                val pending = ModuleManager.list().filter { it.pendingRemove || it.pendingUpdate }
-                if (pending.isNotEmpty()) {
-                    report.skipped += "${pending.size} module change(s) need a reboot"
-                }
             }
         }
 

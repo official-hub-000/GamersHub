@@ -42,8 +42,7 @@ import com.gamershub.theme.RomKit
  * The master engine switch, in the lobby header.
  *
  * This is the one control that decides whether GamersHub touches the phone at all.
- * OFF means nothing runs and nothing changed; ON arms root, Shizuku, overlays and
- * capture. It lives here rather than buried in a sheet because a user who has just
+ * OFF means nothing runs and nothing changed; ON arms Shizuku, overlays and capture. It lives here rather than buried in a sheet because a user who has just
  * turned it off needs to see, without hunting, that it is off.
  *
  * The switch is deliberately loud when off: the whole bar goes to a muted stroke and
@@ -53,7 +52,7 @@ import com.gamershub.theme.RomKit
 @Composable
 fun EngineSwitch(
     on: Boolean,
-    /** Which channel is answering when on: "root", "Shizuku", "app only". */
+    /** Which channel is answering when on: "Shizuku", "app only". */
     channel: String,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
@@ -131,14 +130,4 @@ fun EngineSwitch(
     }
 }
 
-/**
- * Where the engine stands, in one line, for cards that need to explain it.
- * Kept next to the switch so the two can never disagree about wording.
- */
-@Composable
-fun engineChannelLine(on: Boolean, rootReady: Boolean, shizukuReady: Boolean): String = when {
-    !on -> "Off — nothing is running"
-    rootReady -> "root"
-    shizukuReady -> "Shizuku"
-    else -> "app only"
-}
+

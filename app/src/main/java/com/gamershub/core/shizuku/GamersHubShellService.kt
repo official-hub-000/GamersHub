@@ -3,7 +3,7 @@ package com.gamershub.core.shizuku
 import kotlin.system.exitProcess
 
 /**
- * Runs INSIDE the Shizuku server process with shell/root identity.
+ * Runs INSIDE the Shizuku server process with the server's shell identity.
  * Shizuku instantiates this class via reflection and binds it through
  * the IGamersHubShell AIDL interface.
  */

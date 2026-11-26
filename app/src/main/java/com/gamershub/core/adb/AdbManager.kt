@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 /**
  * One ADB connection over Wireless debugging, holding the loopback listening port.
  *
- * ## Why this is a separate identity from DFRoot / Shizuku
+ * ## Why this is a separate identity from Shizuku
  *
  * Wireless debugging runs `adbd` as uid 2000 — the *shell* user. That is exactly the
  * uid Shizuku's server runs as, which is why this can stand in for Shizuku rather

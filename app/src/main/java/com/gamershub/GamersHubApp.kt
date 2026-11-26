@@ -71,8 +71,6 @@ class GamersHubApp : Application() {
         installCrashGuard()
         // Mutations have to be journaled from the moment the app can make one, or the
         // engine's "puts everything back" promise has a hole in it.
-        runCatching { com.gamershub.core.root.ModuleManager.attach(this) }
-        runCatching { com.gamershub.core.root.RootTools.attach(this) }
         runCatching { com.gamershub.core.RenderEngine.attachJournal(this) }
         runCatching { com.gamershub.core.DeviceSpoofer.attach(this) }
         // Restore the persisted master-engine state so a restart cannot silently

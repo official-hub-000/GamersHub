@@ -13,10 +13,11 @@ import rikka.shizuku.Shizuku
 /**
  * The shell surface every privileged feature in the app talks to.
  *
- * Four transports answer it, in descending order of reach:
+ * There is no root: every transport answers as the shell user (uid 2000).
  *
- *  0. **root** ([com.gamershub.core.root.RootShell]) — uid 0.
- *  0b. **the daemon** ([com.gamershub.core.adb.ShellDaemon]) — uid 2000 in a process of
+ * Three transports answer it:
+ *
+ *  1. **the daemon** ([com.gamershub.core.adb.ShellDaemon]) — uid 2000 in a process of
  *     its own that outlives wireless debugging. This is the Shizuku role filled in-app:
  *     started once over any shell, then independent of ADB, ports and this process.
  *  2. **Wireless debugging** ([com.gamershub.core.adb.WirelessAdb]) — uid 2000 via
@@ -97,14 +98,12 @@ object Shell {
     fun granted(): Boolean = try {
         // Any of the three transports being live means privileged work is possible,
         // whether or not Shizuku is installed, running, or authorised.
-        com.gamershub.core.root.RootShell.ready() ||
-            com.gamershub.core.adb.ShellDaemon.alive ||
+        com.gamershub.core.adb.ShellDaemon.alive ||
             com.gamershub.core.adb.WirelessAdb.connected() ||
             (Shizuku.pingBinder() &&
                 Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
     } catch (_: Throwable) {
-        com.gamershub.core.root.RootShell.ready() ||
-            com.gamershub.core.adb.ShellDaemon.alive ||
+        com.gamershub.core.adb.ShellDaemon.alive ||
             com.gamershub.core.adb.WirelessAdb.connected()
     }
 
@@ -186,25 +185,7 @@ object Shell {
      * The bound user service remains as a fallback for older Shizuku builds.
      */
     fun exec(command: String): String? {
-        // Root first: when the engine is on and root was granted, every existing
-        // Shizuku call site transparently gets the deeper tree (system-only paths,
-        // property writes, pkgs that shell cannot touch).
-        if (com.gamershub.core.root.RootShell.ready()) {
-            com.gamershub.core.root.RootShell.run(command)?.let { out ->
-                record("$ " + command.take(70) + "  →  root")
-                return out
-            }
-        }
-        return execAsShell(command)
-    }
-
-    /**
-     * Execute as uid 2000 shell (daemon, wireless ADB, or Shizuku) without
-     * delegating back to [com.gamershub.core.root.RootShell]. Used both as the
-     * shell fallback and by RootShell when root is held by the shell uid.
-     */
-    fun execAsShell(command: String): String? {
-        // The daemon next: a separate uid-2000 process, so it answers even with
+        // The daemon first: a separate uid-2000 process, so it answers even with
         // wireless debugging switched off. This is the transport that makes the
         // privilege outlive the connection that created it.
         if (com.gamershub.core.adb.ShellDaemon.alive) {
@@ -328,13 +309,11 @@ object Shell {
 
     /** True when privileged commands can actually run right now. */
     fun available(): Boolean = granted() || binder != null ||
-        com.gamershub.core.root.RootShell.ready() ||
         com.gamershub.core.adb.ShellDaemon.alive ||
         com.gamershub.core.adb.WirelessAdb.connected()
 
     /** Human-readable reason for the last failure (drives the UI messages). */
     fun reason(): String = when {
-        com.gamershub.core.root.RootShell.ready() -> lastError.ifBlank { "root rejected the command" }
         com.gamershub.core.adb.ShellDaemon.alive ->
             lastError.ifBlank { "the shell daemon rejected the command" }
         com.gamershub.core.adb.WirelessAdb.connected() ->
