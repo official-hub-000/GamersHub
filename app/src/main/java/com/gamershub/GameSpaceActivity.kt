@@ -2447,7 +2447,7 @@ internal fun putSecureSetting(context: Context, name: String, value: Int): Boole
 /** Raw shell command (Shizuku when available, app-side fallback). */
 internal fun shellExec(context: Context, command: String): String {
     com.gamershub.core.shizuku.Shell.ensure(context)
-    return com.gamershub.core.shizuku.Shell.exec(command) ?: com.gamershub.core.shizuku.Shell.appExec(command)
+    return com.gamershub.core.shizuku.Shell.exec(command) ?: null
 }
 
 /** Real game booster: kill background apps + drop caches. Returns MB freed. */
