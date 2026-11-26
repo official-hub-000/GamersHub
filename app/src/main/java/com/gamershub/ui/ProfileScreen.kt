@@ -167,26 +167,12 @@ fun ProfileScreen(
                 .background(GC.HeroBrush)
                 .padding(18.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(GC.TagBg)
-                    .padding(horizontal = 11.dp, vertical = 5.dp)
-            ) {
-                AIcon(GhIcons.Shield, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("FREE", style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp)
-            }
-            Spacer(Modifier.height(10.dp))
             Text(
                 "GamersHub",
                 style = MaterialTheme.typography.headlineLarge,
                 color = GC.Text,
                 fontSize = 28.sp
             )
-            Spacer(Modifier.height(5.dp))
-            Text("Saved on this phone · no cloud", style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text(
                 com.gamershub.ui.components.Brand.BYLINE,
