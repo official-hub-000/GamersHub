@@ -116,7 +116,7 @@ public class AdbMdns {
                 for (InetAddress inetAddress : Collections.list(networkInterface.getInetAddresses())) {
                     String inetHost = inetAddress.getHostAddress();
                     if (Objects.equals(inetHost, serviceInfo.getHost().getHostAddress())
-                            && isPortAvailable(serviceInfo.getPort())) {
+                            && isPortAvailable(serviceInfo.getPort(), inetAddress)) {
                         mServiceName = serviceInfo.getServiceName();
                         mAdbDaemonDiscoveredListener.onPortChanged(serviceInfo.getHost(), serviceInfo.getPort());
                     }
@@ -127,12 +127,20 @@ public class AdbMdns {
         }
     }
 
-    private boolean isPortAvailable(int port) {
+    /**
+     * Checks whether the given {@code port} is free on the supplied {@code host}.
+     *
+     * @param port  TCP port to test.
+     * @param host  The IP address that the ADB service will bind to.
+     * @return {@code true} if the port can be bound (i.e. it is free),
+     *         {@code false} if binding fails (port already in use).
+     */
+    private boolean isPortAvailable(int port, InetAddress host) {
         try (ServerSocket socket = new ServerSocket()) {
-            socket.bind(new InetSocketAddress(AndroidUtils.getHostIpAddress(mContext), port), 1);
-            return false;
-        } catch (IOException e) {
+            socket.bind(new InetSocketAddress(host, port));
             return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 
