@@ -109,11 +109,10 @@ object AdbIdentity {
         val keyFile = File(context.filesDir, KEY_FILE)
         val certFile = File(context.filesDir, CERT_FILE)
         if (keyFile.exists() && certFile.exists()) {
-            val privateKeyResult = runCatching { readPrivateKey(keyFile) }
-            val certResult = runCatching { readCertificate(certFile) }
-            if (privateKeyResult.isSuccess && certResult.isSuccess) {
-                return privateKeyResult.getValue()!! to certResult.getValue()!!
-            }
+            val identity = runCatching {
+                readPrivateKey(keyFile) to readCertificate(certFile)
+            }.getOrNull()
+            if (identity != null) return identity
             // Identity files exist but are corrupt: clear them and regenerate.
             runCatching { keyFile.delete() }
             runCatching { certFile.delete() }
