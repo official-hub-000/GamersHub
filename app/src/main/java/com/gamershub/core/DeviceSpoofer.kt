@@ -13,25 +13,13 @@ import kotlin.math.roundToInt
  * "smaller screen") while every app reports the new resolution and DPI.
  *
  * Identity properties (`ro.product.model`, …) are read-only for apps and for
- * the shell user on a stock ROM — they are written through `resetprop` only
- * when root is actually detected, and the result is read back and reported.
+ * the shell user; only display/density/name are changed, and those are read
+ * back and reported.
  */
 object DeviceSpoofer {
 
-    /**
-     * Journal sink, set at app start.
-     *
-     * Identity spoofing writes `ro.*` properties that no settings snapshot can restore,
-     * so the original value has to be captured at the moment of the write. Null simply
-     * means the journal is not available yet, and the write proceeds un-journaled — which
-     * [restore] still covers for the common presets.
-     */
-    @Volatile
-    private var journal: android.content.Context? = null
-
-    fun attach(context: android.content.Context) {
-        journal = context.applicationContext
-    }
+    /** Kept for call-site compatibility; spoofer changes are restored via [restore]. */
+    fun attach(context: android.content.Context) { }
 
     data class Preset(
         val name: String,
@@ -58,7 +46,6 @@ object DeviceSpoofer {
         val density: String,
         val refresh: String,
         val deviceName: String,
-        val rooted: Boolean,
         val shell: Boolean,
         val overrideSize: String
     )
@@ -107,24 +94,9 @@ object DeviceSpoofer {
             refresh = "${FpsMeter.refreshRate(context)} Hz",
             deviceName = Shell.exec("settings get global device_name")?.trim().orEmpty()
                 .ifBlank { android.os.Build.DEVICE },
-            rooted = isRooted(),
             shell = Shell.available(),
             overrideSize = override
         )
-    }
-
-    fun isRooted(): Boolean {
-        val direct = try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val text = process.inputStream.bufferedReader().readText()
-            process.waitFor()
-            text
-        } catch (_: Throwable) {
-            ""
-        }
-        if (direct.contains("uid=0")) return true
-        val viaShell = Shell.exec("su -c id") ?: ""
-        return viaShell.contains("uid=0")
     }
 
     /**
@@ -251,37 +223,6 @@ object DeviceSpoofer {
         prefs.getBoolean("spoof_name_active", false)
     } catch (_: Throwable) {
         false
-    }
-
-    /** Identity spoof through resetprop/setprop — root only, read back and verified. */
-    fun applyIdentity(preset: Preset): Pair<Boolean, String> {
-        if (!isRooted()) return false to "Root required for model/build properties"
-        val targets = listOf(
-            "ro.product.model" to preset.model,
-            "ro.product.manufacturer" to preset.manufacturer,
-            "ro.product.device" to preset.device,
-            "ro.product.system.model" to preset.model,
-            "ro.product.vendor.model" to preset.model,
-            "ro.build.product" to preset.device
-        )
-        for ((prop, value) in targets) {
-            // Read the real value *before* writing, and journal it. `resetprop` on a ro.*
-            // property is not undone by restoring a settings row, and a phone whose build
-            // fingerprint stays spoofed after "engine off" is exactly the leak this app
-            // must not have. The journal is the only thing that knows the original.
-            val before = Shell.exec("getprop $prop")?.trim().orEmpty()
-            Shell.exec("su -c \"resetprop -n $prop '$value'\"")
-            val after = Shell.exec("getprop $prop")?.trim().orEmpty()
-            if (after == value && before != value) {
-                journal?.let { ctx ->
-                    com.gamershub.core.ChangeLog.record(
-                        ctx, com.gamershub.core.ChangeLog.Kind.PROP, prop, before, value
-                    )
-                }
-            }
-        }
-        val readBack = Shell.exec("getprop ro.product.model")?.trim().orEmpty()
-        return (readBack == preset.model) to readBack
     }
 
     /** Applies the whole safe subset and reports exactly what changed. */

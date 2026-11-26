@@ -651,7 +651,7 @@ fun SpoofSheet(onDismiss: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill("● ${status.manufacturer} ${status.model}")
             Spacer(Modifier.width(6.dp))
-            StatusPill(if (status.rooted) "● Root" else if (status.shell) "● Shizuku" else "● No shell", orange = status.shell)
+            StatusPill(if (status.shell) "● Shizuku" else "● No shell", orange = status.shell)
         }
         Spacer(Modifier.height(6.dp))
         Text(
@@ -697,16 +697,11 @@ fun SpoofSheet(onDismiss: () -> Unit) {
                 val preset = DeviceSpoofer.presets[selected]
                 val applied = DeviceSpoofer.applySafe(context, preset)
                 tick++
-                val identity = if (status.rooted) DeviceSpoofer.applyIdentity(preset) else null
                 log = buildString {
                     if (applied.isEmpty()) append("Needs Shizuku to change display/name.\n")
                     applied.forEach { append("✓ $it\n") }
                     append("Phone name is restored automatically when you leave the Play Hub.\n")
                     append("Apps now see ${DeviceSpoofer.observed(context)}\n")
-                    identity?.let { (ok, model) ->
-                        if (ok) append("✓ Identity props → $model\n")
-                        else append("Identity props: $model (root only)\n")
-                    }
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -729,8 +724,7 @@ fun SpoofSheet(onDismiss: () -> Unit) {
         Text(
             "The display spoof scales resolution and density by the same factor, so the picture keeps its " +
                 "exact aspect ratio and physical size — nothing is cropped or shrunk. Model / build identity " +
-                "is a read-only system property: it changes through root (resetprop) only, and the app reads " +
-                "it back to confirm.",
+                "is a read-only system property and is not changed.",
             color = GC.TextDim,
             fontSize = 11.sp
         )

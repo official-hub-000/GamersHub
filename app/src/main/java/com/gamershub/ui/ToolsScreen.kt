@@ -163,18 +163,15 @@ fun ToolsScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        // ---- MASTER ENGINE: one switch that owns root, Shizuku and every overlay.
+        // ---- MASTER ENGINE: one switch that owns Shizuku and every overlay.
         SectionHead("MASTER ENGINE")
         val engineOn = com.gamershub.core.Engine.isOn
-        val rootReady = com.gamershub.core.root.RootShell.ready()
         ToolRow(
             icon = GhIcons.PowerSettingsNew,
             title = if (engineOn) "Engine On" else "Engine Off",
             subtitle = when {
-                !engineOn -> "nothing is running — root, Shizuku, overlays, capture all off"
-                rootReady -> "root · ${com.gamershub.core.Engine.missingFromShizuku()} also unlocked"
-                com.gamershub.core.shizuku.Shell.available() ->
-                    "Shizuku · shell subset · root adds ${com.gamershub.core.Engine.missingFromShizuku()}"
+                !engineOn -> "nothing is running — Shizuku, overlays, capture all off"
+                com.gamershub.core.shizuku.Shell.available() -> "Shizuku · shell subset"
                 else -> "no privilege — overlays only"
             },
             active = engineOn,
@@ -187,10 +184,7 @@ fun ToolsScreen(
                 } else {
                     scope.launch {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            com.gamershub.core.Engine.start(
-                                context,
-                                wantRoot = com.gamershub.core.Engine.rootOptIn(context)
-                            )
+                            com.gamershub.core.Engine.start(context)
                         }
                         Toast.makeText(context, com.gamershub.core.Engine.statusLine(context), Toast.LENGTH_SHORT).show()
                     }
@@ -198,36 +192,6 @@ fun ToolsScreen(
             },
             onConfig = { onOpenSheet("engineoff") },
             configLabel = "OFF"
-        )
-        ToolRow(
-            icon = GhIcons.AdminPanelSettings,
-            title = "Root",
-            subtitle = com.gamershub.core.root.RootShell.statusLabel(),
-            active = rootReady,
-            accent = accent,
-            onToggle = {
-                scope.launch {
-                    val okLocal = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true).reachedRoot
-                    }
-                    Toast.makeText(
-                        context,
-                        if (okLocal) "Root ready · ${com.gamershub.core.root.RootShell.method}"
-                        else com.gamershub.core.root.RootShell.lastError,
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            },
-            onConfig = {
-                scope.launch {
-                    // Opting out of root is not a restore: it just drops the root
-                    // session. The phone is otherwise untouched, which is why this
-                    // is a separate action from turning the engine off.
-                    com.gamershub.core.Engine.setRootOptIn(context, false)
-                    Toast.makeText(context, "Root released — Shizuku subset still available", Toast.LENGTH_SHORT).show()
-                }
-            },
-            configLabel = "RELEASE"
         )
         Spacer(Modifier.height(14.dp))
 

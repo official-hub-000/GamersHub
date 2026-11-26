@@ -877,18 +877,16 @@ private fun GfxPage(api: AxApi) {
         Spacer(Modifier.height(6.dp))
 
         // ---- MASTER ENGINE -------------------------------------------------
-        // One switch owns every privilege path. OFF tears down root *and*
-        // Shizuku work, all overlays, capture, upscale, and restores the
-        // display/props that were changed. Nothing survives it.
+        // One switch owns every privilege path. OFF tears down Shizuku work,
+        // all overlays, capture, upscale, and restores the display/props that
+        // were changed. Nothing survives it.
         SectionLabel("MASTER ENGINE")
         val engineOn = com.gamershub.core.Engine.isOn
-        val rootReady = com.gamershub.core.root.RootShell.ready()
         SwitchRow(
             title = "ENGINE",
             subtitle = when {
-                !engineOn -> "off — root, Shizuku, overlays and capture are all stopped"
-                rootReady -> "on · root · everything below is live"
-                com.gamershub.core.shizuku.Shell.available() -> "on · Shizuku · root not granted (optional)"
+                !engineOn -> "off — Shizuku, overlays and capture are all stopped"
+                com.gamershub.core.shizuku.Shell.available() -> "on · Shizuku · shell subset"
                 else -> "on · no privilege — overlays only"
             },
             checked = engineOn,
@@ -908,32 +906,15 @@ private fun GfxPage(api: AxApi) {
                     }
                 } else {
                     api.work {
-                        com.gamershub.core.Engine.start(context, wantRoot = false)
+                        com.gamershub.core.Engine.start(context)
                         api.say(com.gamershub.core.Engine.statusLine(context))
                     }
                 }
             }
         )
-        ReadRow("ROOT", com.gamershub.core.root.RootShell.statusLabel())
-        ActionRow(
-            title = "ROOT ACCESS",
-            subtitle = if (rootReady) "deeper tree: system paths, props, module flash"
-                       else "grant su to unlock system-depth control",
-            button = if (rootReady) "READY" else "GRANT"
-        ) {
-            api.work {
-                val okLocal = withContext(Dispatchers.IO) {
-                    com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true).reachedRoot
-                }
-                api.say(
-                    if (okLocal) "Root ready (${com.gamershub.core.root.RootShell.method})"
-                    else com.gamershub.core.root.RootShell.lastError
-                )
-            }
-        }
         ActionRow(
             title = "RESTORE PHONE",
-            subtitle = "close overlays · release root + Shizuku · undo every change",
+            subtitle = "close overlays · release Shizuku · undo every change",
             button = "RESTORE"
         ) {
             api.work {
@@ -1365,9 +1346,9 @@ private fun UpscalePage(api: AxApi) {
             }
         }
         SectionLabel("WHAT IS REAL HERE")
-        ReadRow("LEVEL 1", "display size · refresh · fps · thermal — no root")
+        ReadRow("LEVEL 1", "display size · refresh · fps · thermal")
         ReadRow("LEVEL 2", "GLES upscale + adaptive sharpen · integer scale · frame gen in the mirror")
-        ReadRow("LEVEL 3", "frames inside the GAME's own pipeline need a present hook (root / ROM)")
+        ReadRow("LEVEL 3", "frames inside the GAME's own pipeline need a present hook (ROM)")
         ReadRow("NOTE", "generated frames smooth motion — they never raise the game's render fps")
     }
 }
@@ -1472,17 +1453,11 @@ private fun SpoofPage(api: AxApi) {
     }
     val spoofStatus = rememberLive(DeviceSpoofer.status(context), 4000) { DeviceSpoofer.status(context) }
     val refreshLine = rememberLive("--", 4000) { GfxEngine.refreshSummary(context) }
-    val rooted = rememberLive(false, 8000) { DeviceSpoofer.isRooted() }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
         ReadRow("APPS SEE", observed)
         ReadRow("DEVICE NAME", deviceName)
-        // What CPU-Z / any app reads — model identity needs root, and this row says so.
-        ReadRow(
-            "MODEL (CPU-Z)",
-            spoofStatus.model + if (!spoofStatus.model.equals(preset.model, ignoreCase = true))
-                (if (rooted) "" else " · needs root") else " ✓"
-        )
+        ReadRow("MODEL (CPU-Z)", spoofStatus.model)
         ReadRow("MANUFACTURER", spoofStatus.manufacturer)
         ReadRow("REFRESH", refreshLine)
         StepRow(
@@ -1502,17 +1477,6 @@ private fun SpoofPage(api: AxApi) {
             api.work {
                 val lines = withContext(Dispatchers.IO) { DeviceSpoofer.applySafe(context, preset) }
                 api.say(lines.firstOrNull() ?: "Display spoofed")
-            }
-        }
-        ActionRow(
-            "SPOOF MODEL IDENTITY",
-            if (rooted) "${preset.manufacturer} ${preset.model}"
-            else "Root required: Android makes ro.product.model read-only. Display, density, refresh and the device name are applied without root.",
-            if (rooted) "APPLY" else "ROOT?"
-        ) {
-            api.work {
-                val result = withContext(Dispatchers.IO) { DeviceSpoofer.applyIdentity(preset) }
-                api.say(if (result.first) "Identity → ${preset.model}" else result.second)
             }
         }
         ActionRow("RESTORE EVERYTHING", "wm reset, real device name, refresh, props", "PUT BACK") {

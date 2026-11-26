@@ -9,11 +9,10 @@ import android.content.Intent
  *
  * ## Why this exists
  *
- * A soft restart (`stop` → `start`) and a userspace reboot both restart Android's
- * services while leaving the kernel — and therefore kernel-side root — running. The
- * shell daemon, however, is a process in the *userspace*, so it is gone. Without this
- * receiver, the user's privileged features stay dead after a soft restart until they
- * open GamersHub again, which looks exactly like the daemon having never worked.
+ * A soft restart (`stop` → `start`) restarts Android's services. The shell daemon is
+ * a process in the *userspace*, so it is gone. Without this receiver, the user's
+ * privileged features stay dead after a soft restart until they open GamersHub again,
+ * which looks exactly like the daemon having never worked.
  *
  * ## What it deliberately does not do
  *
@@ -26,8 +25,7 @@ import android.content.Intent
  *
  * On a *full* reboot the daemon cannot come back by itself — starting it needs a shell,
  * and the shell it was started with is gone. That is the same lifetime a Shizuku server
- * has when it was started over ADB, and the release notes say so. Rooted devices can
- * start it again from here.
+ * has when it was started over ADB, and the release notes say so.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -51,11 +49,6 @@ class BootReceiver : BroadcastReceiver() {
                 // Already running (a soft restart that kept it): nothing to do.
                 if (com.gamershub.core.adb.ShellDaemon.ping()) return@Thread
 
-                // Rooted devices can start it again with no user involvement; everything
-                // else genuinely needs the user, because the shell it needs is gone.
-                if (com.gamershub.core.root.RootShell.ready()) {
-                    com.gamershub.core.adb.ShellDaemon.start(context)
-                }
             } catch (_: Throwable) {
                 // A boot receiver that throws takes the process down with it.
             } finally {

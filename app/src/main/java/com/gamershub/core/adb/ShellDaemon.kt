@@ -31,8 +31,7 @@ import java.security.SecureRandom
  * ## Starting it
  *
  * `CLASSPATH=<base.apk> app_process /system/bin com.gamershub.daemon.GamersHubDaemon`
- * is sent over the shell transport that is currently available (root, wireless ADB, or
- * Shizuku). `app_process` takes an APK on its classpath, so the daemon ships in the
+ * is sent over the shell transport that is currently available (wireless ADB or Shizuku). `app_process` takes an APK on its classpath, so the daemon ships in the
  * installed APK itself instead of a second dex asset that could drift out of sync.
  *
  * The process is detached with `setsid` and its output goes to a log file, because a
@@ -100,7 +99,7 @@ object ShellDaemon {
         if (ping()) return true to statusLine()
 
         val shell = transportFor(context)
-            ?: return false to "Needs a shell to start: pair wireless debugging, or use root"
+            ?: return false to "Needs a shell to start: pair wireless debugging or run Shizuku"
 
         val command = startCommand(context)
         val out = shell(command)
@@ -132,13 +131,9 @@ object ShellDaemon {
     /**
      * Chooses the transport that can spawn a process.
      *
-     * Root first (it can start the daemon on devices where adbd is unavailable), then the
-     * wireless ADB shell, then Shizuku. All three return output or null.
+     * The wireless ADB shell first, then Shizuku. Both return output or null.
      */
     private fun transportFor(context: Context): ((String) -> String?)? {
-        if (com.gamershub.core.root.RootShell.ready()) {
-            return { cmd -> com.gamershub.core.root.RootShell.run(cmd, 12_000) }
-        }
         if (WirelessAdb.connected()) {
             return { cmd -> WirelessAdb.exec(context, cmd, 12_000) }
         }

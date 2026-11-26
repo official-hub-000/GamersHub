@@ -482,7 +482,7 @@ fun WirelessAdbSheet(onDismiss: () -> Unit) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Rooted already? You do not need this. Root is a strict superset and is used first.",
+            "Shizuku on this device also works. This is a root-free shell transport.",
             color = GC.TextDim.copy(alpha = 0.8f),
             fontSize = 11.sp
         )

@@ -8,11 +8,9 @@ import android.content.Context
  * ## Why a snapshot is not enough
  *
  * [Restore] captures `settings` rows because their previous values can be read back and
- * re-written. A module toggle cannot be handled that way: enabling a module writes
- * `disable`'s *absence*, and "the file that was not there" is not a value you can read.
- * The same holds for a flashed module zip, a prop written with `setprop`, and a package
- * the app disabled. To undo those, the app has to have **recorded what it did at the
- * moment it did it**.
+ * re-written. Some changes cannot be handled that way — a `cmd game` mode, for
+ * example, leaves state no snapshot can reverse. To undo those, the app has to have
+ * **recorded what it did at the moment it did it**.
  *
  * That is this file. Every mutation goes through [record], and [undo] replays the journal
  * in reverse when the engine stops. It is deliberately boring: a list of small records
@@ -22,15 +20,13 @@ import android.content.Context
  *
  * "Engine off puts the phone back" has to be true for privileged changes, not just for
  * settings — otherwise the app looks clean while the phone is not. A change that cannot
- * be reversed (a module whose files were replaced by an update) is not silently
- * forgotten: it is reported in [undo]'s result so the user is told, rather than left
- * believing a reboot is unnecessary.
+ * be reversed is not silently forgotten: it is reported in [undo]'s result so the user
+ * is told.
  *
  * ## Lifetime
  *
- * Records live until they are undone. They are *not* cleared by a reboot: a module left
- * enabled is still enabled after one, so the journal has to survive too. A record is
- * removed only when [undo] successfully reverses it.
+ * Records live until they are undone. A record is removed only when [undo]
+ * successfully reverses it.
  */
 object ChangeLog {
 
@@ -39,7 +35,7 @@ object ChangeLog {
     /** One reversible change. [kind] decides how it is reversed. */
     data class Record(
         val kind: Kind,
-        /** What it applied to — a module id, a prop name, a package. */
+        /** What it applied to — e.g. a package name. */
         val subject: String,
         /** What was true before. Empty means "did not exist". */
         val before: String,
@@ -50,18 +46,6 @@ object ChangeLog {
     )
 
     enum class Kind {
-        /** A module was enabled or disabled. Reversed by restoring the other state. */
-        MODULE_STATE,
-
-        /** A module zip was flashed. Reversed by queueing it for removal. */
-        MODULE_INSTALLED,
-
-        /** A module was queued for removal. Reversed by cancelling the queue marker. */
-        MODULE_REMOVE_QUEUED,
-
-        /** A system property was written. Reversed by writing [Record.before] back. */
-        PROP,
-
         /** A package was disabled. Reversed by re-enabling it. */
         PACKAGE_DISABLED,
 
@@ -108,17 +92,14 @@ object ChangeLog {
     /**
      * Reverses everything in the journal, newest first.
      *
-     * Newest first because later changes assume earlier ones: a module installed and then
-     * disabled has to be re-enabled before it is removed, or the removal marker is
-     * written into a directory that is already gone.
+     * Newest first because later changes assume earlier ones.
      *
      * Returns the human-readable outcome, split so the engine's stop report can say what
-     * is genuinely back and what needs a reboot.
+     * is genuinely back and what failed.
      */
     fun undo(context: Context, shell: (String) -> String?): Result {
         val all = current(context).sortedByDescending { it.at }
         val undone = mutableListOf<String>()
-        val needsReboot = mutableListOf<String>()
         val failed = mutableListOf<String>()
         val keep = mutableListOf<Record>()
 
@@ -129,19 +110,6 @@ object ChangeLog {
                     failed += "${r.kind.name.lowercase()} ${r.subject}"
                     keep += r
                 }
-                // These only take effect on the next boot, so saying "restored" would be
-                // a lie until the user has rebooted.
-                r.kind == Kind.MODULE_STATE || r.kind == Kind.MODULE_INSTALLED ||
-                    r.kind == Kind.MODULE_REMOVE_QUEUED -> {
-                    // The module id alone is not enough: "my_module" and "removed
-                    // my_module" are different outcomes, and the user has to be able to
-                    // tell which one this was.
-                    needsReboot += when (r.kind) {
-                        Kind.MODULE_INSTALLED -> "remove ${r.subject}"
-                        Kind.MODULE_REMOVE_QUEUED -> "keep ${r.subject}"
-                        else -> r.subject
-                    }
-                }
                 else -> undone += "${r.subject}"
             }
         }
@@ -149,29 +117,22 @@ object ChangeLog {
         // Keep only the ones that could not be reversed, so a second stop does not
         // replay work that already succeeded.
         write(context, keep)
-        // The same module can appear twice (installed, then disabled); one line is enough.
-        return Result(undone.distinct(), needsReboot.distinct(), failed.distinct())
+        return Result(undone.distinct(), failed.distinct())
     }
 
     data class Result(
         val undone: List<String>,
-        val needsReboot: List<String>,
         val failed: List<String>
     ) {
-        val empty: Boolean get() = undone.isEmpty() && needsReboot.isEmpty() && failed.isEmpty()
+        val empty: Boolean get() = undone.isEmpty() && failed.isEmpty()
 
         /**
          * One line naming what was actually reversed.
          *
-         * "3 changes reverted" tells the user nothing they can check. Naming the kinds is
-         * what lets them look at the module list and believe the phone is back to normal.
+         * "3 changes reverted" tells the user nothing they can check.
          */
         fun report(): String = buildString {
             if (undone.isNotEmpty()) append("undid ${undone.joinToString(", ")}")
-            if (needsReboot.isNotEmpty()) {
-                if (isNotEmpty()) append(" · ")
-                append("${needsReboot.joinToString(", ")} take effect after a reboot")
-            }
             if (failed.isNotEmpty()) {
                 if (isNotEmpty()) append(" · ")
                 append("could not undo ${failed.joinToString(", ")}")
@@ -182,39 +143,6 @@ object ChangeLog {
     // ------------------------------------------------------------------ reversing
 
     private fun reverse(context: Context, r: Record, shell: (String) -> String?): Boolean = when (r.kind) {
-        // Enabling a module removes <id>/disable; disabling writes it. Restoring the
-        // recorded "before" is therefore the same operation either way.
-        Kind.MODULE_STATE -> {
-            val cmd = if (r.before == "enabled") {
-                "rm -f /data/adb/modules/${r.subject}/disable"
-            } else {
-                "touch /data/adb/modules/${r.subject}/disable"
-            }
-            shell("$cmd; echo __GH_EXIT__=\$?")?.contains("__GH_EXIT__=0") == true
-        }
-
-        // A flashed module is not un-flashed by deleting the directory — its files may
-        // already be live. The managers' own mechanism is the removal marker, which
-        // runs the module's uninstall path at the next boot.
-        Kind.MODULE_INSTALLED ->
-            shell("touch /data/adb/modules/${r.subject}/remove; echo __GH_EXIT__=\$?")
-                ?.contains("__GH_EXIT__=0") == true
-
-        Kind.MODULE_REMOVE_QUEUED ->
-            shell("rm -f /data/adb/modules/${r.subject}/remove; echo __GH_EXIT__=\$?")
-                ?.contains("__GH_EXIT__=0") == true
-
-        Kind.PROP -> {
-            val value = r.before
-            if (value.isBlank()) {
-                shell("resetprop --delete '${r.subject}' 2>/dev/null; echo __GH_EXIT__=\$?")
-                    ?.contains("__GH_EXIT__=0") == true
-            } else {
-                shell("resetprop -n '${r.subject}' '${escape(value)}' 2>/dev/null; echo __GH_EXIT__=\$?")
-                    ?.contains("__GH_EXIT__=0") == true
-            }
-        }
-
         Kind.PACKAGE_DISABLED ->
             shell("pm enable --user 0 '${r.subject}'; echo __GH_EXIT__=\$?")
                 ?.contains("__GH_EXIT__=0") == true
@@ -228,8 +156,6 @@ object ChangeLog {
                     "echo __GH_EXIT__=\$?"
             )?.contains("__GH_EXIT__=0") == true
     }
-
-    private fun escape(v: String): String = v.replace("'", "'\\''")
 
     // ------------------------------------------------------------------ storage
 

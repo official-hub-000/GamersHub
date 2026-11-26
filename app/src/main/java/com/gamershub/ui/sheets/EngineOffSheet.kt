@@ -156,10 +156,9 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "• Modules you installed stay installed — uninstall them in the store\n" +
-                            "• An app permission Android granted (e.g. overlay) is yours, not ours\n" +
-                            "• Module changes already flashed need a reboot to unwind\n" +
-                            "• Files you deleted from the system cannot be brought back",
+                        "• An app permission Android granted (e.g. overlay) is yours, not ours\n" +
+                            "• Settings Android doesn't let the shell user change are left as-is\n" +
+                            "• Files you deleted cannot be brought back",
                         color = GC.TextDim,
                         fontSize = 11.sp
                     )
@@ -173,7 +172,6 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 Text(
                     when (channel) {
-                        Channel.Kind.ROOT -> "root — full restore"
                         Channel.Kind.DAEMON -> "daemon — shell-level restore"
                         Channel.Kind.WIRELESS -> "wireless debugging — shell-level restore"
                         Channel.Kind.SHIZUKU -> "Shizuku — shell-level restore"
@@ -261,9 +259,8 @@ fun EngineOffSheet(onDismiss: () -> Unit) {
             }
 
             Text(
-                "Overlays are closed, the root session is released, the Shizuku binder is " +
-                    "disconnected and the temporary root provider is deleted. The app is now " +
-                    "an ordinary app.",
+                "Overlays are closed and the Shizuku binder is disconnected. " +
+                    "The app is now an ordinary app.",
                 color = GC.TextDim,
                 fontSize = 11.sp
             )
