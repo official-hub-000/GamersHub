@@ -123,8 +123,7 @@ sealed interface SheetState {
     data class Permission(val index: Int) : SheetState
     data object DisplayTuning : SheetState
     data object Activation : SheetState
-
-    data object PanelHub : SheetState
+    data object GameReady : SheetState
     data object Ping : SheetState
     data object Gyro : SheetState
     data object Mapping : SheetState
@@ -356,7 +355,16 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
             "display" -> SheetState.DisplayTuning
             "presets" -> SheetState.Presets
             "activation" -> SheetState.Activation
-            "settings" -> SheetState.Settings
+             "settings" -> SheetState.Settings
+            "record" -> SheetState.Record
+            "live" -> SheetState.Live
+            "graphics" -> SheetState.Graphics
+            "spoof" -> SheetState.Spoof
+            "panel" -> SheetState.PanelHub
+            "apps" -> SheetState.AppSelector
+            "engineoff" -> SheetState.EngineOff
+            "logolaunch" -> SheetState.LogoLaunch
+            else -> SheetState.None
         }
 
         // Deep link from the floating panel / home-screen shortcuts.

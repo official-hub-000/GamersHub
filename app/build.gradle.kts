@@ -113,6 +113,6 @@ dependencies {
 
     // Wireless-debugging ADB client (vendored under io.github.muntashirakon.adb,
     // Apache-2.0 arm of its dual licence) needs pairing crypto.
-    implementation(libs.bouncycastle.prov)
+    // Removed — Shizuku-only transport no longer uses it.
 
 }

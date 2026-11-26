@@ -1145,6 +1145,7 @@ private fun ValueBox(value: String, suffix: String, modifier: Modifier = Modifie
 /* ------------------------------------------------------------------ */
 
 @Composable
+@Composable
 fun ActivationSheet(
     envLevel: Int,
     shizukuActive: Boolean,
@@ -1224,225 +1225,40 @@ fun ActivationSheet(
             )
         }
         Spacer(Modifier.height(10.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { logOpen = !logOpen }
-                        .padding(vertical = 6.dp)
-                ) {
-                    AIcon(GhIcons.FastForward, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Shizuku Log", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(if (logOpen) "⌃" else "⌄", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp)
-                }
-                if (logOpen) {
-                    Spacer(Modifier.height(6.dp))
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(GC.Bg)
-                            .padding(12.dp)
-                    ) {
-                        val lines = remember(tick) {
-                            val history = runCatching { com.gamershub.core.shizuku.Shell.recent(8) }.getOrDefault(emptyList())
-                            if (history.isEmpty()) {
-                                listOf(
-                                    "binder: " + com.gamershub.core.shizuku.Shell.statusLabel(),
-                                    "error: " + com.gamershub.core.shizuku.Shell.reason()
-                                )
-                            } else {
-                                history.reversed()
-                            }
-                        }
-                        lines.forEach {
-                            Text(it, style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 11.5.sp, lineHeight = 17.sp)
-                        }
-                    }
-                }
-            }
-        } else {
-            // ---- TCP/IP Mode ----
-            val adbTcp = try {
-                android.provider.Settings.Global.getInt(context.contentResolver, "adb_wifi_enabled") == 1
-            } catch (_: Throwable) { false }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { logOpen = !logOpen }
+                .padding(vertical = 6.dp)
+        ) {
+            AIcon(GhIcons.FastForward, contentDescription = null, tint = accent, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Shizuku Log", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(if (logOpen) "⌃" else "⌄", style = MaterialTheme.typography.labelLarge, color = accent, fontSize = 14.sp)
+        }
+        if (logOpen) {
+            Spacer(Modifier.height(6.dp))
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RomKit.R12)
-                    .background(RomKit.Panel2)
-                    .border(1.dp, RomKit.Stroke, RomKit.R12)
-                    .padding(15.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(GC.Bg)
+                    .padding(12.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(GhIcons.Dns, size = 44)
-                    Spacer(Modifier.width(11.dp))
-                    Text("Net Mode", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp, modifier = Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(9.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(accent.copy(alpha = 0.16f))
-                        .padding(horizontal = 11.dp, vertical = 7.dp)
-                ) {
-                    if (adbTcp) AIcon(GhIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        if (adbTcp) "TCP/IP active on port 5555" else "TCP/IP not active",
-                        style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp
-                    )
-                }
-                Spacer(Modifier.height(9.dp))
-                Text(
-                    "ADB TCP/IP looks active on this device, but this app hasn't paired with it yet — it was likely turned on another way. Pair once below to trust this device.",
-                    style = MaterialTheme.typography.bodyMedium, color = GC.TextDim, fontSize = 12.5.sp, lineHeight = 18.sp
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            // ---- Wireless Debugging ----
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RomKit.R12)
-                    .background(RomKit.Panel2)
-                    .border(1.dp, RomKit.Stroke, RomKit.R12)
-                    .padding(15.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(GhIcons.Dns, size = 44)
-                    Spacer(Modifier.width(11.dp))
-                    Text("Cordless Debug", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
-                }
-                Spacer(Modifier.height(8.dp))
-                StatPill(runCatching { "This phone: " + com.gamershub.core.ScreenInfo.wifiIp() }.getOrDefault("ADB Wireless Debugging"))
-                Spacer(Modifier.height(10.dp))
-                listOf(
-                    "Open Wireless Debugging in Developer Options",
-                    "Pick 'Pair device with pairing code'",
-                    "Come back here and start discovery"
-                ).forEachIndexed { i, step ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 5.dp)) {
-                        Box(
-                            Modifier.size(24.dp).clip(CircleShape).background(accent.copy(alpha = 0.22f)),
-                            contentAlignment = Alignment.Center
-                        ) { Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp) }
-                        Spacer(Modifier.width(10.dp))
-                        Text(step, style = MaterialTheme.typography.bodyMedium, color = GC.Text, fontSize = 13.5.sp, lineHeight = 19.sp)
+                val lines = remember(tick) {
+                    val history = runCatching { com.gamershub.core.shizuku.Shell.recent(8) }.getOrDefault(emptyList())
+                    if (history.isEmpty()) {
+                        listOf(
+                            "binder: " + com.gamershub.core.shizuku.Shell.statusLabel(),
+                            "error: " + com.gamershub.core.shizuku.Shell.reason()
+                        )
+                    } else {
+                        history.reversed()
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(50))
-                            .clickable {
-                                runCatching {
-                                    context.startActivity(
-                                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    )
-                                }
-                            }
-                            .padding(vertical = 13.dp),
-                        contentAlignment = Alignment.Center
-                    ) { Text("Likes", style = MaterialTheme.typography.labelLarge, color = GC.Text, fontSize = 15.sp) }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .background(accent)
-                            .clickable {
-                                // Real jump to the system's own wireless-debugging screen.
-                                val deep = android.content.Intent("android.settings.WIRELESS_DEBUGGING")
-                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                val plain = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
-                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                val opened = runCatching { context.startActivity(deep); true }
-                                    .getOrElse { runCatching { context.startActivity(plain); true }.getOrDefault(false) }
-                                Toast.makeText(
-                                    context,
-                                    if (opened) "Opened wireless debugging" else "Open Developer options by hand",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                            .padding(vertical = 13.dp),
-                        contentAlignment = Alignment.Center
-                    ) { Text("Open", style = MaterialTheme.typography.labelLarge, color = Color.White, fontSize = 15.sp) }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            // ---- ADB via OTG ----
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RomKit.R12)
-                    .background(RomKit.Panel2)
-                    .border(1.dp, RomKit.Stroke, RomKit.R12)
-                    .padding(15.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconChip(GhIcons.Dns, size = 44)
-                    Spacer(Modifier.width(11.dp))
-                    Text("ADB via OTG", style = MaterialTheme.typography.titleMedium, color = GC.Text, fontSize = 19.sp)
-                }
-                Spacer(Modifier.height(9.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .background(accent)
-                            .padding(vertical = 11.dp),
-                        contentAlignment = Alignment.Center
-                    ) { Text("This phone = Brains", style = MaterialTheme.typography.labelLarge, color = Color.White, fontSize = 13.sp) }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color(0x14FFFFFF))
-                            .padding(vertical = 11.dp),
-                        contentAlignment = Alignment.Center
-                    ) { Text("This phone = Target", style = MaterialTheme.typography.labelLarge, color = GC.TextSoft, fontSize = 13.sp) }
-                }
-                Spacer(Modifier.height(10.dp))
-                listOf(
-                    "Turn on USB Debugging on the Target device (Preferences > Developer options > USB debugging)",
-                    "Plug the OTG adapter into THIS device, then connect the Target via USB cable",
-                    "Tap Scan — approve the USB permission dialog on THIS device",
-                    "Tap Activate — approve the 'Allow USB debugging?' dialog on the Target"
-                ).forEachIndexed { i, step ->
-                    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 5.dp)) {
-                        Box(
-                            Modifier.size(24.dp).clip(CircleShape).background(accent.copy(alpha = 0.22f)),
-                            contentAlignment = Alignment.Center
-                        ) { Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = accent, fontSize = 12.sp) }
-                        Spacer(Modifier.width(10.dp))
-                        Text(step, style = MaterialTheme.typography.bodyMedium, color = GC.Text, fontSize = 13.sp, lineHeight = 18.sp)
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(50))
-                        .background(accent)
-                        .clickable {
-                            val found = com.gamershub.core.ScreenInfo.usbDevices(context)
-                            usbNote = if (found.isEmpty()) "Nothing on the USB port right now"
-                            else found.joinToString(" · ")
-                            Toast.makeText(context, usbNote, Toast.LENGTH_LONG).show()
-                        }
-                        .padding(vertical = 14.dp),
-                    contentAlignment = Alignment.Center
-                ) { Text("Check USB port", style = MaterialTheme.typography.labelLarge, color = Color.White, fontSize = 15.sp) }
-                if (usbNote.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(usbNote, color = GC.TextDim, fontSize = 12.sp, lineHeight = 17.sp)
+                lines.forEach {
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = GC.TextDim, fontSize = 11.5.sp, lineHeight = 17.sp)
                 }
             }
         }
