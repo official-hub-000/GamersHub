@@ -476,7 +476,10 @@ fun RootShell(repo: AppRepo, initialSheet: String? = null) {
                             sheet = SheetState.EngineOff
                         } else {
                             runCatching {
-                                com.gamershub.core.Engine.start(context, wantRoot = false)
+                                com.gamershub.core.Engine.start(
+                                    context,
+                                    wantRoot = com.gamershub.core.Engine.rootOptIn(context)
+                                )
                             }
                             engineTick++
                         }

@@ -195,6 +195,15 @@ object Shell {
                 return out
             }
         }
+        return execAsShell(command)
+    }
+
+    /**
+     * Execute as uid 2000 shell (daemon, wireless ADB, or Shizuku) without
+     * delegating back to [com.gamershub.core.root.RootShell]. Used both as the
+     * shell fallback and by RootShell when root is held by the shell uid.
+     */
+    fun execAsShell(command: String): String? {
         // The daemon next: a separate uid-2000 process, so it answers even with
         // wireless debugging switched off. This is the transport that makes the
         // privilege outlive the connection that created it.
@@ -209,9 +218,12 @@ object Shell {
         // One fewer hop than the binder, and it keeps working when Shizuku's server
         // has been force-stopped.
         if (com.gamershub.core.adb.WirelessAdb.connected()) {
-            com.gamershub.core.adb.WirelessAdb.exec(appContext ?: return null, command)?.let { out ->
-                record("$ " + command.take(70) + "  →  wireless adb")
-                return out
+            val ctx = appContext ?: com.gamershub.GamersHubApp.instance
+            if (ctx != null) {
+                com.gamershub.core.adb.WirelessAdb.exec(ctx, command)?.let { out ->
+                    record("$ " + command.take(70) + "  →  wireless adb")
+                    return out
+                }
             }
         }
         directExec(command)?.let { out ->

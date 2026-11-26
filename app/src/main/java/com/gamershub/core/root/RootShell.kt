@@ -62,10 +62,22 @@ object RootShell {
     var temporarySession: Boolean = false
         private set
 
+    /** True when root is held via the shell uid (Shizuku / daemon / wireless ADB). */
+    @Volatile
+    private var shizukuRoot: Boolean = false
+
+    /** True when `su -c` verified uid=0 even if an interactive `su` session could not be kept open. */
+    @Volatile
+    private var oneShotReady: Boolean = false
+
     /** Keeps the multiplexed shell open for the engine session. */
     fun hold(context: android.content.Context) {
+        if (shizukuRoot) {
+            record("session held via shell")
+            return
+        }
         if (session?.alive != true) startSession(context)
-        record(if (session?.alive == true) "session held" else "session not available")
+        record(if (session?.alive == true) "session held" else "one-shot root ready")
     }
 
     /**
@@ -78,6 +90,8 @@ object RootShell {
      */
     fun adoptShizukuRoot() {
         if (ready()) return
+        shizukuRoot = true
+        oneShotReady = false
         state = State.READY
         method = "su via Shizuku"
         lastError = ""
@@ -101,11 +115,13 @@ object RootShell {
             record("temp provider ran but not as root")
             return false
         }
+        shizukuRoot = false
         state = State.READY
         method = "temporary provider"
         temporarySession = true
         lastError = ""
         startSession(context)
+        oneShotReady = session?.alive != true
         record("temp provider -> uid=0 (session only)")
         return true
     }
@@ -127,7 +143,8 @@ object RootShell {
         }
     }
 
-    fun ready(): Boolean = state == State.READY && session?.alive == true
+    fun ready(): Boolean =
+        state == State.READY && (shizukuRoot || oneShotReady || session?.alive == true)
 
     fun statusLabel(): String = when (state) {
         State.READY -> "Root ready · $method"
@@ -163,7 +180,7 @@ object RootShell {
 
     /** First su binary that exists, or null. Cheap: one shell, no prompt. */
     fun suBinary(): String? {
-        val cmd = SU_PATHS.joinToString("; ") { "test -x $it && echo $it" }
+        val cmd = SU_PATHS.joinToString("; ") { "test -x $it && echo $it" } + "; command -v su 2>/dev/null"
         val out = quick(cmd, 4_000) ?: return null
         return out.lines().map { it.trim() }.firstOrNull { line ->
             line.startsWith("/") && !line.contains(" ")
@@ -181,6 +198,8 @@ object RootShell {
     fun acquire(context: Context): Boolean {
         if (ready()) return true
 
+        var sawDenied = false
+
         // 1. su, tried through PATH first and then by absolute path. Magisk's
         //    debug_ramdisk and the KernelSU/APatch bins are not on an app's PATH,
         //    which is why a plain `su -c id` fails on many rooted devices.
@@ -192,29 +211,29 @@ object RootShell {
         for (bin in candidates) {
             quick("$bin -c id", timeoutMs = 20_000)?.let { out ->
                 if (out.contains("uid=0")) {
+                    shizukuRoot = false
+                    binPath = if (bin == "su") (binary ?: "su") else bin
                     state = State.READY
                     method = if (bin == "su") "su" else "su ($bin)"
-                    binPath = binary
                     lastError = ""
                     startSession(context)
+                    oneShotReady = session?.alive != true
                     record("$bin -c id → uid=0")
                     return true
                 }
                 if (out.contains("denied", true) || out.contains("not allowed", true)) {
+                    sawDenied = true
                     state = State.DENIED
                     lastError = "Superuser request denied. Open your root manager and allow GamersHub."
                 }
             }
         }
 
-        // 2. su through the Shizuku shell — some setups only grant root to shell
+        // 2. su through the Shizuku / daemon / wireless shell — some setups only grant root to shell
         if (state != State.READY) {
-            com.gamershub.core.shizuku.Shell.exec("su -c id")?.let { out ->
+            com.gamershub.core.shizuku.Shell.execAsShell("su -c id")?.let { out ->
                 if (out.contains("uid=0")) {
-                    state = State.READY
-                    method = "su via Shizuku"
-                    lastError = ""
-                    startSession(context)
+                    adoptShizukuRoot()
                     record("su via shizuku → uid=0")
                     return true
                 }
@@ -225,18 +244,26 @@ object RootShell {
         if (state != State.READY && installProvider(context)) {
             quick("${providerPath(context)} id", timeoutMs = 20_000)?.let { out ->
                 if (out.contains("uid=0")) {
+                    shizukuRoot = false
+                    temporarySession = true
                     state = State.READY
                     method = "bundled provider"
                     lastError = ""
                     startSession(context)
+                    oneShotReady = session?.alive != true
                     record("$PROVIDER id → uid=0")
                     return true
                 }
             }
         }
 
-        state = if (com.gamershub.core.shizuku.Shell.available()) State.SHELL_ONLY else State.NOT_ROOT
-        lastError = "No root. Install Magisk (or KernelSU/APatch) and grant GamersHub superuser access."
+        if (sawDenied) {
+            state = State.DENIED
+            lastError = "Superuser request denied. Open your root manager and allow GamersHub."
+        } else {
+            state = if (com.gamershub.core.shizuku.Shell.available()) State.SHELL_ONLY else State.NOT_ROOT
+            lastError = "No root. Install Magisk (or KernelSU/APatch) and grant GamersHub superuser access."
+        }
         record("acquire failed → $lastError")
         return false
     }
@@ -272,6 +299,9 @@ object RootShell {
     /** Drops the persistent shell and marks root unusable; call on engine stop. */
     fun releaseAll() {
         temporarySession = false
+        shizukuRoot = false
+        oneShotReady = false
+        binPath = null
         runCatching { session?.close() }
         session = null
         state = State.SHELL_ONLY
@@ -287,6 +317,11 @@ object RootShell {
      */
     fun run(command: String, timeoutMs: Long = 8_000): String? {
         if (state != State.READY) return null
+        if (shizukuRoot) {
+            val out = com.gamershub.core.shizuku.Shell.execAsShell("su -c ${shellQuote(command)}")
+            record("$ " + command.take(70) + if (out != null) " → root (shell)" else " → failed")
+            return out
+        }
         val s = session
         if (s != null && s.alive) {
             val out = s.exec(command, timeoutMs)
@@ -295,11 +330,12 @@ object RootShell {
                 return out
             }
         }
-        // Session died (device revoked root, process recycled): retry once one-shot.
-        val out = quick("su -c \"${command.replace("\"", "\\\"")}\"", timeoutMs)
+        // Session died or could not stay open: retry one-shot with the discovered su binary.
+        val out = quickSu(binPath ?: "su", command, timeoutMs)
         if (out != null) {
             record("$ " + command.take(70) + " → root (oneshot)")
-            startSession(com.gamershub.GamersHubApp.instance ?: return out)
+            com.gamershub.GamersHubApp.instance?.let { startSession(it) }
+            oneShotReady = session?.alive != true
         } else {
             session = null
             record("$ " + command.take(70) + " → failed")
@@ -307,11 +343,26 @@ object RootShell {
         return out
     }
 
+    private fun shellQuote(cmd: String): String = "'" + cmd.replace("'", "'\\''") + "'"
+
     fun ok(command: String): Boolean {
         val out = run("$command; echo __GH_EXIT__=$?") ?: return false
         val m = Regex("__GH_EXIT__=(-?\\d+)").find(out) ?: return true
         return m.groupValues[1] == "0"
     }
+
+    /** One-shot exec via `su -c` without relying on `sh -c` double-quote escaping. */
+    private fun quickSu(suBin: String, command: String, timeoutMs: Long): String? = runCatching {
+        val p = ProcessBuilder(suBin, "-c", command).redirectErrorStream(true).start()
+        val sb = StringBuilder()
+        val t = Thread { runCatching { p.inputStream.bufferedReader().forEachLine { sb.appendLine(it) } } }
+        t.start()
+        if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+            runCatching { p.destroyForcibly() }
+        }
+        t.join(800)
+        sb.toString()
+    }.getOrNull()
 
     /** One-shot exec with no session reuse; used for probing. */
     private fun quick(cmdline: String, timeoutMs: Long): String? = runCatching {
@@ -342,16 +393,15 @@ object RootShell {
      */
     private fun installProvider(context: Context): Boolean = runCatching {
         val file = java.io.File(context.filesDir, PROVIDER)
-        if (!file.exists()) {
-            file.writeText(
-                """
-                #!/system/bin/sh
-                # GamersHub temporary root provider.
-                # Exists only while the master engine is on; re-execs the device's su.
-                exec su -c "$*"
-                """.trimIndent() + "\n"
-            )
-        }
+        val su = binPath ?: suBinary() ?: "su"
+        file.writeText(
+            """
+            #!/system/bin/sh
+            # GamersHub temporary root provider.
+            # Exists only while the master engine is on; re-execs the device's su.
+            exec $su -c "$*"
+            """.trimIndent() + "\n"
+        )
         file.setExecutable(true, false)
         file.exists() && file.canExecute()
     }.getOrDefault(false)
@@ -389,23 +439,37 @@ object RootShell {
 
         private val pending = ArrayDeque<String>()
         private val lock = Object()
+        private val execLock = Object()
         private var markerSeq = AtomicInteger(0)
+        @Volatile
+        private var activeMarker: String = ""
+        @Volatile
         private var waiting: CountDownLatch? = null
 
-        fun exec(command: String, timeoutMs: Long): String? {
+        fun exec(command: String, timeoutMs: Long): String? = synchronized(execLock) {
             if (!alive) return null
             return try {
                 val id = markerSeq.incrementAndGet()
+                val marker = "__GH_DONE_${id}__"
                 val latch = CountDownLatch(1)
                 synchronized(lock) {
                     pending.clear()
+                    activeMarker = marker
                     waiting = latch
                 }
                 writer.write("$command\n")
-                writer.write("echo __GH_DONE_${id}__\n")
+                writer.write("echo $marker\n")
                 writer.flush()
                 val finished = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-                if (!finished) return null
+                synchronized(lock) {
+                    waiting = null
+                    activeMarker = ""
+                }
+                if (!finished) {
+                    // Stream is now out of sync with markers; close so caller falls back cleanly.
+                    close()
+                    return null
+                }
                 synchronized(lock) { pending.joinToString("\n") }
             } catch (t: Throwable) {
                 alive = false
@@ -417,7 +481,8 @@ object RootShell {
             try {
                 var line: String? = reader.readLine()
                 while (line != null) {
-                    if (line.startsWith("__GH_DONE_")) {
+                    val cur = activeMarker
+                    if (cur.isNotEmpty() && line == cur) {
                         waiting?.countDown()
                     } else {
                         synchronized(lock) { pending.addLast(line!!) }
@@ -448,6 +513,11 @@ object RootShell {
                 val r = p.inputStream.bufferedReader()
                 val s = Session(p, w, r)
                 Thread(s::pump, "gh-root-shell").apply { isDaemon = true }.start()
+                val idOut = s.exec("id", 4_000)
+                if (idOut == null || !idOut.contains("uid=0")) {
+                    s.close()
+                    error("su session did not reach uid=0")
+                }
                 return s
             }
         }

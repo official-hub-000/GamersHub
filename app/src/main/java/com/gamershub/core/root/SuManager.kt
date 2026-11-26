@@ -57,8 +57,11 @@ object SuManager {
     }
 
     /** True when we can both read and write the policy store. */
-    fun canManage(): Boolean =
-        RootShell.ready() && backend() != Backend.NONE && sqlite() != null
+    fun canManage(): Boolean = when (backend()) {
+        Backend.MAGISK -> sqlite() != null
+        Backend.KERNELSU, Backend.APATCH -> true
+        Backend.NONE -> false
+    }
 
     private fun sqlite(): String? {
         val out = RootShell.run(

@@ -102,7 +102,7 @@ fun RootScreen(@Suppress("UNUSED_PARAMETER") accentIdx: Int = 0) {
                     suBinary = RootShell.suBinary(),
                     modules = if (RootShell.ready()) ModuleManager.list() else emptyList(),
                     zygisk = ModuleManager.zygiskEnabled(),
-                    diag = if (showDiag && RootShell.ready()) RootShell.diagnose(context) else emptyList(),
+                    diag = if (showDiag) RootShell.diagnose(context) else emptyList(),
                     grants = if (RootShell.ready()) {
                         // uid -> (package, label). Cached, because this is called once
                         // per policy row and each miss is a PackageManager walk.

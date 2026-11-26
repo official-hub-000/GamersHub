@@ -102,20 +102,6 @@ object Engine {
 
         persist(context, true)
 
-        // Root is an option: attempted only when the caller asked for it. A
-        // successful grant is remembered so later starts do not re-prompt, and a
-        // failed one is remembered too so we stop nagging a user who has no root.
-        // Climb the privilege ladder: su from the device, then su via Shizuku, then the
-        // bundled temporary provider. Whichever rung answers is reported, so a
-        // KernelSU device and a DFRoot-style per-boot device both end up with working
-        // root and an honest label.
-        if (wantRoot) {
-            val ladder = runCatching {
-                com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
-            }.getOrNull()
-            if (ladder?.reachedRoot == true) setRootOptIn(context, true)
-            lastLadder = ladder
-        }
         runCatching { Shell.ensure(context) }
 
         // Re-attach the wireless-debugging shell when the user turned it on for this
@@ -145,6 +131,21 @@ object Engine {
             ) {
                 com.gamershub.core.adb.ShellDaemon.start(context)
             }
+        }
+
+        // Root is an option: attempted only when the caller asked for it. A
+        // successful grant is remembered so later starts do not re-prompt, and a
+        // failed one is remembered too so we stop nagging a user who has no root.
+        // Climb the privilege ladder: su from the device, then su via Shizuku, then the
+        // bundled temporary provider. Whichever rung answers is reported, so a
+        // KernelSU device and a DFRoot-style per-boot device both end up with working
+        // root and an honest label.
+        if (wantRoot) {
+            val ladder = runCatching {
+                com.gamershub.core.root.PrivilegeLadder.climb(context, wantRoot = true)
+            }.getOrNull()
+            if (ladder?.reachedRoot == true) setRootOptIn(context, true)
+            lastLadder = ladder
         }
         return statusLine(context)
     }

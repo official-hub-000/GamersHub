@@ -141,10 +141,10 @@ object PrivilegeLadder {
             return Result(rungFor(), steps, RootShell.suBinary())
         }
 
-        // ---- rung 3: su through Shizuku ----
+        // ---- rung 3: su through Shizuku / daemon / wireless ----
         if (shizukuUp) {
             val viaShizuku = runCatching {
-                com.gamershub.core.shizuku.Shell.exec("su -c id")?.contains("uid=0") == true
+                com.gamershub.core.shizuku.Shell.execAsShell("su -c id")?.contains("uid=0") == true
             }.getOrDefault(false)
             steps += Step("su via Shizuku", viaShizuku, if (viaShizuku) "shell holds the grant" else "denied")
             if (viaShizuku) {
