@@ -983,6 +983,8 @@ internal fun IntroAnimation(
             androidx.compose.ui.viewinterop.AndroidView(
                 factory = { ctx ->
                     android.view.TextureView(ctx).apply {
+                        isOpaque = true
+                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                         surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
                             override fun onSurfaceTextureAvailable(
                                 texture: android.graphics.SurfaceTexture,
