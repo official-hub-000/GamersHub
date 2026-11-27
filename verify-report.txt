@@ -1,0 +1,51 @@
+APK: app/build/outputs/apk/release/app-release.apk
+size: 24502022 bytes
+apksigner: /usr/local/lib/android/sdk/build-tools/37.0.0/apksigner
+--- apksigner (full) ---
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v3.2 scheme (APK Signature Scheme v3.2): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+V2 Signer: certificate DN: CN="GamersHub, OU=App, O=GamersHub, C=US"
+V2 Signer: certificate SHA-256 digest: 463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0
+V2 Signer: certificate SHA-1 digest: fd494aec5c382d315fbf78866307cbd28b93cfcf
+V2 Signer: certificate MD5 digest: b2ebd476c25bde2681fadab1b74aab5e
+V2 Signer: key algorithm: RSA
+V2 Signer: key size (bits): 2048
+V2 Signer: public key SHA-256 digest: 1941e163fd814219c40184b608a3f65edc3bce45754824c8f118e34f83b16100
+V2 Signer: public key SHA-1 digest: 5239b72ad4230cf39dc5d727bbe44910f5ffcc79
+V2 Signer: public key MD5 digest: d2128005f469e71cbed6fb7e0fe34812
+cert SHA-256: 463c72645dbdaaab2e096dc53a6e82bb99ff591eaab221ba30f3b611945c16e0
+OK: signed with release keystore (v2)
+aapt2: /usr/local/lib/android/sdk/build-tools/37.0.0/aapt2
+--- badging (first 8 lines) ---
+package: name='com.gamershub' versionCode='105' versionName='6.32.0' platformBuildVersionName='14' platformBuildVersionCode='34' compileSdkVersion='34' compileSdkVersionCodename='14'
+minSdkVersion:'26'
+targetSdkVersion:'34'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
+uses-permission: name='android.permission.ACCESS_WIFI_STATE'
+uses-permission: name='android.permission.CHANGE_WIFI_MULTICAST_STATE'
+uses-permission: name='android.permission.POST_NOTIFICATIONS'
+expected: versionCode=105 versionName=6.32.0
+OK: com.gamershub 6.32.0 (105), not debuggable
+--- dex entries ---
+classes.dex
+classes2.dex
+classes3.dex
+RESULT: PASS
+  res/4a.mp4  dims=1080x1920 audio=aac,2
+  res/8Y.mp4  dims=1080x1920 audio=aac,2
+  res/TE.mp4  dims=960x540 audio=none
+  res/Xg.mp4  dims=960x540 audio=none
+  res/Zl.mp4  dims=960x540 audio=none
+  res/gQ.mp4  dims=1920x1080 audio=aac,2
+  res/ys.mp4  dims=720x1280 audio=none
+  resource raw/intro_portrait present
+  resource raw/game_space_intro present
+media audit rc=0
