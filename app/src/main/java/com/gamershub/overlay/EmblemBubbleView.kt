@@ -18,7 +18,8 @@ import kotlin.math.hypot
 import kotlin.math.min
 
 /**
- * The floating mark: the red gamepad on a soft breathing light. Same object as
+ * The floating mark: the emblem on a soft breathing light over a fully
+ * transparent background — no dark bed, no black shadow. Same object as
  * the launcher icon, so the bubble reads as "this app" at a glance.
  *
  * Deliberately a plain [View] and not a Compose surface. A `ComposeView` has to
@@ -26,7 +27,7 @@ import kotlin.math.min
  * (`AbstractComposeView.onAttachedToWindow`), and anything that goes wrong in
  * that first pass takes the process with it — which is exactly what closed the
  * app when the floating button was switched on. A View cannot do that: the
- * picture is decoded once, drawn with two circles and a bitmap, and a single
+ * picture is decoded once, drawn with a glow circle and a bitmap, and a single
  * animator drives the glow.
  */
 class EmblemBubbleView(context: Context) : View(context) {
@@ -51,8 +52,6 @@ class EmblemBubbleView(context: Context) : View(context) {
         }.getOrDefault(source)
     }
 
-    private val bedPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val markPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
     private var pulse = 0.18f
@@ -129,33 +128,28 @@ class EmblemBubbleView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val radius = min(boxPx, min(width, height).toFloat()) / 2f
 
-        // 1. Thin dark bed, so the mark stays readable over a bright game.
-        bedPaint.shader = RadialGradient(
-            cx, cy, radius,
-            intArrayOf(Color.argb(102, 0, 0, 0), Color.argb(34, 0, 0, 0), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.62f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(cx, cy, radius, bedPaint)
+        // No bed/shadow: transparent background behind the mark.
+        // (Previously a radial black gradient was drawn here as a "bed".)
 
-        // 2. The breathing light — crimson at the rim of the mark, never a strobe.
-        val glowRadius = radius * 0.94f
+        // 2. The breathing light — accent tint at the rim of the mark, never a strobe.
+        val glowRadius = min(width, height).toFloat() / 2f * 0.94f
         val r = Color.red(accentColor)
         val g = Color.green(accentColor)
         val b = Color.blue(accentColor)
-        glowPaint.shader = RadialGradient(
-            cx, cy, glowRadius,
-            intArrayOf(
-                Color.argb((pulse * 0.30f * 255).toInt().coerceIn(0, 255), r, g, b),
-                Color.argb((pulse * 255).toInt().coerceIn(0, 255), r, g, b),
-                Color.argb((pulse * 0.35f * 255).toInt().coerceIn(0, 255), r, g, b),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, 0.46f, 0.76f, 1f),
-            Shader.TileMode.CLAMP
-        )
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(
+                cx, cy, glowRadius,
+                intArrayOf(
+                    Color.argb((pulse * 0.30f * 255).toInt().coerceIn(0, 255), r, g, b),
+                    Color.argb((pulse * 255).toInt().coerceIn(0, 255), r, g, b),
+                    Color.argb((pulse * 0.35f * 255).toInt().coerceIn(0, 255), r, g, b),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.46f, 0.76f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
         canvas.drawCircle(cx, cy, glowRadius, glowPaint)
 
         // 3. The mark itself, breathing very slightly with the light.
