@@ -139,15 +139,12 @@ class GameSpaceActivity : ComponentActivity() {
         // The master switch gates the hub itself. With the engine off Game Space is a
         // read-only preview: it opens so the user can see where things are and turn
         // the engine on, but nothing privileged or persistent runs behind it.
-        val engineOnAtLaunch = com.gamershub.core.Engine.isOn
         setContent {
             val customArgb = runCatching { repo.customAccent() }.getOrDefault(0)
             val customTint = if (customArgb != 0) androidx.compose.ui.graphics.Color(customArgb) else null
             GameCornerTheme(if (customTint != null) com.gamershub.theme.GC.CUSTOM else repo.accentIndex(), customTint) {
-                // No intro film when the engine is off: the intro is part of the
-                // product experience, not something that should play over a hub that
-                // is not allowed to do anything.
-                var showIntro by remember { mutableStateOf(engineOnAtLaunch) }
+                // Always play the Game Space intro — it's the product's welcome film.
+                var showIntro by remember { mutableStateOf(true) }
                 androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
                     GameSpaceScreen(
                         pkg = pkg,
